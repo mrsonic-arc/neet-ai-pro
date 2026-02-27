@@ -168,7 +168,7 @@ if st.session_state.submitted:
             st.success(f"**Correct Answer:** {q['answer']}")
             st.info(f"**NCERT Explanation:** {q['explanation']}")
 
-    st.divider()
+      st.divider()
         st.subheader("💬 Doubt-Buster Chat")
         st.write("Ask any follow-up questions about this test or the concepts involved.")
         
@@ -189,12 +189,17 @@ if st.session_state.submitted:
 
             # Generate AI response
             with st.chat_message("assistant"):
-                # We give the AI the context of the quiz it just generated
+                # Providing context of the quiz for better explanations
                 full_context = f"Context: The student is reviewing a NEET quiz. Question context: {str(st.session_state.quiz)}. Student Question: {prompt}"
-                response = client.models.generate_content(model=MODEL_ID, contents=full_context)
-                st.markdown(response.text)
-                st.session_state.chat_history.append({"role": "assistant", "content": response.text})
+                try:
+                    response = client.models.generate_content(model=MODEL_ID, contents=full_context)
+                    st.markdown(response.text)
+                    st.session_state.chat_history.append({"role": "assistant", "content": response.text})
+                except Exception as e:
+                    st.error("⏳ Server synchronization in progress. Please wait 60 seconds.")
+
     if st.button("🔄 Take Another Test"):
         st.session_state.quiz = None
         st.session_state.submitted = False
+        st.session_state.chat_history = [] # Clear chat for the next test
         st.rerun()
