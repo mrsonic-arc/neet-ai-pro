@@ -3,7 +3,7 @@ from google import genai
 from google.genai import types
 import json
 from PyPDF2 import PdfReader
-import time # Fixed: Added missing import
+import time
 
 # 1. SETUP & CONFIG
 st.set_page_config(page_title="NEET AI Master 2026", page_icon="🩺", layout="wide")
@@ -12,7 +12,7 @@ try:
     API_KEY = st.secrets["GEMINI_KEY"]
     client = genai.Client(api_key=API_KEY)
 except Exception:
-    st.error("API Key not found. Please set 'GEMINI_KEY' in Streamlit Secrets.")
+    st.error("🔑 API Key Missing! Set 'GEMINI_KEY' in Streamlit Secrets.")
 
 MODEL_ID = "gemini-3-flash-preview"
 
@@ -23,12 +23,11 @@ def extract_text_from_pdf(pdf_file):
 
 def generate_questions(content, is_pdf=False):
     try:
-        time.sleep(1) # Safety delay for free tier
+        time.sleep(1) 
         prompt = f"""
         Act as a Senior NTA NEET Paper Setter. Using the provided NCERT CONTENT, generate 10 High-Yield MCQs.
-        The questions must strictly follow the NEET PYQ pattern (2021-2025).
-        Include Standard, A-R, and Statement-based questions.
-        RETURN ONLY A JSON LIST.
+        Follow NEET 2021-2025 patterns. Include Standard, A-R, and Statement-based questions.
+        RETURN ONLY A JSON LIST with keys: "type", "question", "options", "answer", "explanation".
         CONTENT: {content[:8000]}
         """
         response = client.models.generate_content(
@@ -40,7 +39,7 @@ def generate_questions(content, is_pdf=False):
     except Exception as e:
         if "429" in str(e) or "quota" in str(e).lower():
             st.error("⏳ **Server Synchronization in Progress**")
-            st.info("To ensure the highest accuracy, our AI engine is calibrating. Please try again in 60 seconds.")
+            st.info("To ensure accuracy, our engine is calibrating. Please wait 60 seconds.")
             st.stop()
         else:
             st.error("🩺 **System Maintenance Required**")
@@ -61,9 +60,7 @@ with tab1:
     if st.button("Generate Test", key="btn_chapter"):
         with st.spinner("AI is crafting questions..."):
             st.session_state.quiz = generate_questions(chapter)
-            st.session_state.user_answers = {}
-            st.session_state.submitted = False
-            st.session_state.chat_history = []
+            st.session_state.user_answers, st.session_state.submitted, st.session_state.chat_history = {}, False, []
             st.rerun()
 
 with tab2:
@@ -72,27 +69,21 @@ with tab2:
         with st.spinner("Reading PDF..."):
             text = extract_text_from_pdf(file)
             st.session_state.quiz = generate_questions(text, is_pdf=True)
-            st.session_state.user_answers = {}
-            st.session_state.submitted = False
-            st.session_state.chat_history = []
+            st.session_state.user_answers, st.session_state.submitted, st.session_state.chat_history = {}, False, []
             st.rerun()
 
 with tab3:
-    st.subheader("📸 NCERT Lens: Snap & Solve")
-    img_file = st.camera_input("Focus on a diagram or page")
+    st.subheader("📸 NCERT Lens")
+    img_file = st.camera_input("Snap a Diagram")
     if img_file:
-        with st.spinner("Scanning..."):
+        with st.spinner("Analyzing..."):
             img_bytes = img_file.getvalue()
-            img_prompt = "Analyze this NCERT image. Identify the diagram/concept and explain 3 key points NTA asks."
-            response = client.models.generate_content(
-                model=MODEL_ID,
-                contents=[img_prompt, types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg")]
-            )
+            img_prompt = "Identify this NCERT diagram and explain 3 high-yield points for NEET."
+            response = client.models.generate_content(model=MODEL_ID, contents=[img_prompt, types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg")])
             st.info(response.text)
-            if st.button("Create Quiz from this Scan"):
+            if st.button("Create Quiz from Scan"):
                 st.session_state.quiz = generate_questions(response.text, is_pdf=True)
-                st.session_state.user_answers = {}
-                st.session_state.submitted = False
+                st.session_state.user_answers, st.session_state.submitted, st.session_state.chat_history = {}, False, []
                 st.rerun()
 
 # 5. DISPLAY & SCORING
@@ -102,49 +93,60 @@ if st.session_state.quiz:
         for i, q in enumerate(st.session_state.quiz):
             st.markdown(f"#### Q{i+1}: {q['question']}")
             st.session_state.user_answers[i] = st.radio(f"Select for Q{i+1}:", ["Not Attempted"] + q['options'], key=f"q_{i}")
-        
         if st.button("🚀 SUBMIT FINAL TEST"):
             st.session_state.submitted = True
             st.rerun()
     else:
-       # Robust Scoring Logic
-        correct = 0
-        wrong = 0
-        
+        # Scoring
+        correct_count = 0
+        wrong_count = 0
+        skipped_count = 0
         for i, q in enumerate(st.session_state.quiz):
-            # This looks for 'answer' OR 'correct_answer' safely
-            actual_answer = q.get('answer') or q.get('correct_answer')
-            user_choice = st.session_state.user_answers.get(i)
-            
-            if user_choice == actual_answer:
-                correct += 1
-            elif user_choice != "Not Attempted":
-                wrong += 1
+            c_ans = q.get('answer') or q.get('correct_answer') or q.get('correct')
+            u_ans = st.session_state.user_answers.get(i)
+            if u_ans == c_ans: correct_count += 1
+            elif u_ans == "Not Attempted": skipped_count += 1
+            else: wrong_count += 1
         
-        score = (correct * 4) - (wrong * 1)
+        score = (correct_count * 4) - (wrong_count * 1)
+        accuracy = (correct_count / len(st.session_state.quiz)) * 100
         
-        # Doubt-Buster (Correctly placed OUTSIDE the loop)
+        st.header(f"📊 Results: {score} Marks")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Score", score)
+        c2.metric("Accuracy", f"{accuracy:.1f}%")
+        c3.metric("Correct ✅", correct_count)
+        c4.metric("Wrong ❌", wrong_count)
+        
+        st.progress(accuracy / 100)
+        
+        st.divider()
+        for i, q in enumerate(st.session_state.quiz):
+            with st.expander(f"Review Q{i+1}"):
+                c_ans = q.get('answer') or q.get('correct_answer') or q.get('correct')
+                u_ans = st.session_state.user_answers.get(i)
+                if u_ans == c_ans: st.success("Correct!")
+                elif u_ans == "Not Attempted": st.warning("Skipped")
+                else: st.error("Incorrect")
+                st.write(f"**Correct:** {c_ans}")
+                st.info(f"**NCERT:** {q.get('explanation', 'Refer to NCERT.')}")
+
         st.divider()
         st.subheader("💬 Doubt-Buster Chat")
         for msg in st.session_state.chat_history:
-            with st.chat_message(msg["role"]):
-                st.markdown(msg["content"])
-
-        if prompt := st.chat_input("Ask about these questions..."):
+            with st.chat_message(msg["role"]): st.markdown(msg["content"])
+        
+        if prompt := st.chat_input("Ask a follow-up doubt..."):
             st.session_state.chat_history.append({"role": "user", "content": prompt})
             with st.chat_message("user"): st.markdown(prompt)
-            
             with st.chat_message("assistant"):
-                context = f"Student is reviewing NEET questions: {str(st.session_state.quiz)}. Doubt: {prompt}"
                 try:
-                    response = client.models.generate_content(model=MODEL_ID, contents=context)
-                    st.markdown(response.text)
-                    st.session_state.chat_history.append({"role": "assistant", "content": response.text})
-                except:
-                    st.error("⏳ Server busy. Try again in 60s.")
+                    res = client.models.generate_content(model=MODEL_ID, contents=f"Quiz context: {str(st.session_state.quiz)}. Question: {prompt}")
+                    st.markdown(res.text)
+                    st.session_state.chat_history.append({"role": "assistant", "content": res.text})
+                except: st.error("⏳ Server busy.")
 
-        if st.button("🔄 Take Another Test"):
+        if st.button("🔄 New Test"):
             st.session_state.quiz = None
             st.session_state.submitted = False
-            st.session_state.chat_history = []
             st.rerun()
