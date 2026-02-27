@@ -62,7 +62,8 @@ with tab1:
             st.session_state.quiz = generate_questions(chapter)
             st.session_state.user_answers, st.session_state.submitted, st.session_state.chat_history = {}, False, []
             st.rerun()
-            if st.button("✨ Generate Revision Card", key="rev_card"):
+            
+    if st.button("✨ Generate Revision Card", key="rev_card"):
         with st.spinner("Summarizing NCERT highlights..."):
             rev_prompt = f"Act as a NEET revision expert. For the topic '{chapter}', provide a concise revision card. Include: 1. A table of important Scientists and their discoveries. 2. A Mnemonic to remember complex lists. 3. Three 'Warning' points where students usually make mistakes."
             res = client.models.generate_content(model=MODEL_ID, contents=rev_prompt)
