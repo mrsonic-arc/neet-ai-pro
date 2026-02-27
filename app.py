@@ -71,12 +71,45 @@ with tab1:
             st.markdown(res.text)
 
 with tab2:
-    file = st.file_uploader("Upload NCERT PDF", type="pdf")
-    if file and st.button("Analyze PDF", key="btn_pdf"):
-        with st.spinner("Reading PDF..."):
-            text = extract_text_from_pdf(file)
-            st.session_state.quiz = generate_questions(text, is_pdf=True)
-            st.session_state.user_answers, st.session_state.submitted, st.session_state.chat_history = {}, False, []
+    st.subheader("📄 PDF Data Extractor")
+    file = st.file_uploader("Upload NCERT PDF (e.g., Breathing & Exchange of Gases)", type="pdf")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if file and st.button("📝 Generate MCQ Test", key="btn_pdf_quiz"):
+            with st.spinner("Extracting questions..."):
+                text = extract_text_from_pdf(file)
+                st.session_state.quiz = generate_questions(text, is_pdf=True)
+                st.session_state.submitted = False
+                st.rerun()
+
+    with col2:
+        if file and st.button("📊 Create Data Table", key="btn_pdf_table"):
+            with st.spinner("Finding data points and building table..."):
+                text = extract_text_from_pdf(file)
+                
+                # Specialized Table Prompt
+                table_prompt = f"""
+                Extract all numerical data, comparisons, or classifications from this text: {text[:8000]}
+                Organize it into a Markdown Table suitable for NEET revision.
+                Focus on: Values, Units, Scientists, or Comparative features.
+                If it's Biology, look for Partial Pressures, Volumes (TV, IRV), or Examples.
+                """
+                
+                response = client.models.generate_content(model=MODEL_ID, contents=table_prompt)
+                
+                st.session_state.data_table = response.text
+                st.rerun()
+
+    # Display the table if it exists in session state
+    if 'data_table' in st.session_state:
+        st.divider()
+        st.success("✅ High-Yield Data Table Extracted")
+        st.markdown(st.session_state.data_table)
+        
+        if st.button("🗑️ Clear Table"):
+            del st.session_state.data_table
             st.rerun()
 
 with tab3:
