@@ -107,21 +107,22 @@ if st.session_state.quiz:
             st.session_state.submitted = True
             st.rerun()
     else:
-        # Scoring Logic
-        correct = sum(1 for i, q in enumerate(st.session_state.quiz) if st.session_state.user_answers.get(i) == q['answer'])
-        wrong = sum(1 for i, q in enumerate(st.session_state.quiz) if st.session_state.user_answers.get(i) != q['answer'] and st.session_state.user_answers.get(i) != "Not Attempted")
+       # Robust Scoring Logic
+        correct = 0
+        wrong = 0
         
-        st.header(f"📊 Score: {(correct*4)-(wrong*1)}")
-        col1, col2 = st.columns(2)
-        col1.metric("Accuracy", f"{(correct/len(st.session_state.quiz))*100:.1f}%")
-        col2.metric("Correct", f"{correct}")
-
         for i, q in enumerate(st.session_state.quiz):
-            with st.expander(f"Review Q{i+1}"):
-                st.write(f"**Your Answer:** {st.session_state.user_answers.get(i)}")
-                st.write(f"**Correct Answer:** {q['answer']}")
-                st.info(f"**NCERT Reference:** {q['explanation']}")
-
+            # This looks for 'answer' OR 'correct_answer' safely
+            actual_answer = q.get('answer') or q.get('correct_answer')
+            user_choice = st.session_state.user_answers.get(i)
+            
+            if user_choice == actual_answer:
+                correct += 1
+            elif user_choice != "Not Attempted":
+                wrong += 1
+        
+        score = (correct * 4) - (wrong * 1)
+        
         # Doubt-Buster (Correctly placed OUTSIDE the loop)
         st.divider()
         st.subheader("💬 Doubt-Buster Chat")
