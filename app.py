@@ -168,7 +168,7 @@ if st.session_state.submitted:
             st.success(f"**Correct Answer:** {q['answer']}")
             st.info(f"**NCERT Explanation:** {q['explanation']}")
 
-      st.divider()
+        st.divider()
         st.subheader("💬 Doubt-Buster Chat")
         st.write("Ask any follow-up questions about this test or the concepts involved.")
         
