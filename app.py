@@ -74,17 +74,45 @@ with tab2:
 
 with tab3:
     st.subheader("📸 NCERT Lens")
-    img_file = st.camera_input("Snap a Diagram")
-    if img_file:
-        with st.spinner("Analyzing..."):
-            img_bytes = img_file.getvalue()
-            img_prompt = "Identify this NCERT diagram and explain 3 high-yield points for NEET."
-            response = client.models.generate_content(model=MODEL_ID, contents=[img_prompt, types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg")])
-            st.info(response.text)
-            if st.button("Create Quiz from Scan"):
-                st.session_state.quiz = generate_questions(response.text, is_pdf=True)
-                st.session_state.user_answers, st.session_state.submitted, st.session_state.chat_history = {}, False, []
-                st.rerun()
+    
+    # Use a session state variable to toggle the camera
+    if 'camera_active' not in st.session_state:
+        st.session_state.camera_active = False
+
+    if not st.session_state.camera_active:
+        st.info("Click the button below to activate your camera and scan NCERT diagrams.")
+        if st.button("🔌 Activate Camera"):
+            st.session_state.camera_active = True
+            st.rerun()
+    else:
+        if st.button("❌ Close Camera"):
+            st.session_state.camera_active = False
+            st.rerun()
+            
+        img_file = st.camera_input("Position the diagram within the frame")
+        
+        if img_file:
+            with st.spinner("Analyzing diagram..."):
+                img_bytes = img_file.getvalue()
+                img_prompt = "Identify this NCERT diagram and explain 3 high-yield points for NEET 2026."
+                
+                # Image processing
+                response = client.models.generate_content(
+                    model=MODEL_ID, 
+                    contents=[
+                        img_prompt, 
+                        types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg")
+                    ]
+                )
+                
+                st.markdown("### 🧬 AI Analysis")
+                st.info(response.text)
+                
+                if st.button("Create Quiz from Scan"):
+                    st.session_state.quiz = generate_questions(response.text, is_pdf=True)
+                    st.session_state.user_answers, st.session_state.submitted, st.session_state.chat_history = {}, False, []
+                    st.session_state.camera_active = False # Close camera after generating quiz
+                    st.rerun()
 
 # 5. DISPLAY & SCORING
 if st.session_state.quiz:
