@@ -188,16 +188,43 @@ if st.session_state.quiz:
         
         st.progress(accuracy / 100)
         
-        st.divider()
+       st.divider()
+        st.subheader("📝 Question-by-Question Review")
+
         for i, q in enumerate(st.session_state.quiz):
-            with st.expander(f"Review Q{i+1}"):
-                c_ans = q.get('answer') or q.get('correct_answer') or q.get('correct')
-                u_ans = st.session_state.user_answers.get(i)
-                if u_ans == c_ans: st.success("Correct!")
-                elif u_ans == "Not Attempted": st.warning("Skipped")
-                else: st.error("Incorrect")
-                st.write(f"**Correct:** {c_ans}")
-                st.info(f"**NCERT:** {q.get('explanation', 'Refer to NCERT.')}")
+            u_ans = st.session_state.user_answers.get(i)
+            c_ans = q.get('answer') or q.get('correct_answer') or q.get('correct')
+            
+            # Status icon and color based on performance
+            if u_ans == c_ans:
+                icon = "✅"
+                color = "green"
+            elif u_ans == "Not Attempted":
+                icon = "⚠️"
+                color = "orange"
+            else:
+                icon = "❌"
+                color = "red"
+
+            with st.expander(f"{icon} Question {i+1}"):
+                st.write(f"**{q['question']}**")
+                
+                # Create two columns for side-by-side comparison
+                col_u, col_c = st.columns(2)
+                
+                with col_u:
+                    if u_ans == c_ans:
+                        st.success(f"**Your Choice:**\n\n{u_ans}")
+                    elif u_ans == "Not Attempted":
+                        st.warning(f"**Your Choice:**\n\nSkipped")
+                    else:
+                        st.error(f"**Your Choice:**\n\n{u_ans}")
+                
+                with col_c:
+                    st.success(f"**Correct Answer:**\n\n{c_ans}")
+                
+                st.divider()
+                st.info(f"📖 **NCERT Explanation:** {q.get('explanation', 'Refer to NCERT for deeper understanding.')}")
 
         st.divider()
         st.subheader("💬 Doubt-Buster Chat")
