@@ -59,26 +59,63 @@ if 'quiz' not in st.session_state: st.session_state.quiz = None
 if 'user_answers' not in st.session_state: st.session_state.user_answers = {}
 if 'submitted' not in st.session_state: st.session_state.submitted = False
 
-# 4. INTERFACE
-tab1, tab2 = st.tabs(["📖 By Chapter", "📄 By PDF"])
+# 4. INTERFACE (Added NCERT Lens)
+tab1, tab2, tab3 = st.tabs(["📖 By Chapter", "📄 By PDF", "📸 NCERT Lens"])
 
 with tab1:
     chapter = st.text_input("Enter NCERT Chapter Name:")
-    if st.button("Generate Test"):
+    if st.button("Generate Test", key="btn_chapter"):
         with st.spinner("AI is crafting questions..."):
             st.session_state.quiz = generate_questions(chapter)
             st.session_state.user_answers = {}
             st.session_state.submitted = False
+            st.rerun()
 
 with tab2:
     file = st.file_uploader("Upload NCERT PDF", type="pdf")
-    if file and st.button("Analyze PDF & Generate"):
+    if file and st.button("Analyze PDF", key="btn_pdf"):
         with st.spinner("Reading PDF..."):
             text = extract_text_from_pdf(file)
             st.session_state.quiz = generate_questions(text, is_pdf=True)
             st.session_state.user_answers = {}
             st.session_state.submitted = False
+            st.rerun()
 
+with tab3:
+    st.subheader("📸 NCERT Lens: Snap & Solve")
+    img_file = st.camera_input("Focus on a diagram or a tough paragraph")
+    
+    if img_file:
+        with st.spinner("Gemini 3 is scanning the page..."):
+            # Convert the camera image to bytes for the AI
+            img_bytes = img_file.getvalue()
+            
+            # Specialized Image Prompt for NEET
+            img_prompt = """
+            Act as a NEET Biology & Physics Professor. Analyze this NCERT image:
+            1. Identify the diagram or concept.
+            2. Explain the mechanism shown (e.g., Kreb's Cycle, P-N Junction).
+            3. Highlight 3 facts that NTA often uses for 'Incorrect Statement' type questions.
+            """
+            
+            # Send image + prompt to Gemini
+            response = client.models.generate_content(
+                model=MODEL_ID,
+                contents=[
+                    img_prompt,
+                    types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg")
+                ]
+            )
+            
+            st.markdown("### 🧬 AI Concept Breakdown")
+            st.info(response.text)
+            
+            # Option to generate questions based on what it just saw
+            if st.button("Create Quiz from this Scan"):
+                st.session_state.quiz = generate_questions(response.text, is_pdf=True)
+                st.session_state.user_answers = {}
+                st.session_state.submitted = False
+                st.rerun()
 # 5. DISPLAY & SCORING
 if st.session_state.quiz and not st.session_state.submitted:
     st.info(f"📝 Test in Progress: {len(st.session_state.quiz)} Questions")
