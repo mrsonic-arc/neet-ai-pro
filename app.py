@@ -81,28 +81,58 @@ with tab2:
 
 # 5. DISPLAY & SCORING
 if st.session_state.quiz and not st.session_state.submitted:
+    st.info(f"📝 Test in Progress: {len(st.session_state.quiz)} Questions")
     for i, q in enumerate(st.session_state.quiz):
-        st.markdown(f"#### Q{i+1} ({q['type']})")
-        st.write(q['question'])
-        st.session_state.user_answers[i] = st.radio(f"Select Answer:", ["Not Attempted"] + q['options'], key=f"q_{i}")
+        st.markdown(f"#### Q{i+1}: {q['question']}")
+        st.caption(f"Category: {q['type']}")
+        st.session_state.user_answers[i] = st.radio(
+            f"Select for Q{i+1}:", 
+            ["Not Attempted"] + q['options'], 
+            key=f"q_{i}"
+        )
         st.write("---")
     
-    if st.button("🚀 SUBMIT TEST"):
+    if st.button("🚀 SUBMIT FINAL TEST"):
         st.session_state.submitted = True
         st.rerun()
 
+# THE NEW ANALYSIS SECTION
 if st.session_state.submitted:
-    correct, wrong = 0, 0
+    correct, wrong, skipped = 0, 0, 0
     for i, q in enumerate(st.session_state.quiz):
-        user_ans = st.session_state.user_answers.get(i)
-        if user_ans == q['answer']: correct += 1
-        elif user_ans != "Not Attempted": wrong += 1
-    
+        ans = st.session_state.user_answers.get(i, "Not Attempted")
+        if ans == "Not Attempted": skipped += 1
+        elif ans == q['answer']: correct += 1
+        else: wrong += 1
+
     score = (correct * 4) - (wrong * 1)
-    st.header(f"📊 Your Score: {score} / {len(st.session_state.quiz)*4}")
-    st.write(f"Correct: {correct} | Incorrect: {wrong}")
     
+    st.header("📊 Performance Report")
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Final Score", f"{score}")
+    col2.metric("Accuracy", f"{(correct/len(st.session_state.quiz))*100:.1f}%")
+    col3.metric("Wrong Answers", f"{wrong}")
+
+    st.subheader("📝 Detailed Review")
     for i, q in enumerate(st.session_state.quiz):
-        with st.expander(f"Review Q{i+1}"):
-            st.write(f"**Answer:** {q['answer']}")
-            st.info(f"**Explantion:** {q['explanation']}")
+        user_ans = st.session_state.user_answers.get(i, "Not Attempted")
+        
+        # Determine the status and color
+        if user_ans == q['answer']:
+            st.success(f"✅ Q{i+1}: Correct!")
+        elif user_ans == "Not Attempted":
+            st.warning(f"⚠️ Q{i+1}: Skipped")
+        else:
+            st.error(f"❌ Q{i+1}: Incorrect")
+            st.write(f"**Your Answer:** {user_ans}")
+        
+        # Always show correct answer and explanation for learning
+        with st.expander(f"See Solution for Q{i+1}"):
+            st.write(f"**Question:** {q['question']}")
+            st.success(f"**Correct Answer:** {q['answer']}")
+            st.info(f"**NCERT Explanation:** {q['explanation']}")
+
+    if st.button("🔄 Take Another Test"):
+        st.session_state.quiz = None
+        st.session_state.submitted = False
+        st.rerun()
