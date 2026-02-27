@@ -168,6 +168,32 @@ if st.session_state.submitted:
             st.success(f"**Correct Answer:** {q['answer']}")
             st.info(f"**NCERT Explanation:** {q['explanation']}")
 
+    st.divider()
+        st.subheader("💬 Doubt-Buster Chat")
+        st.write("Ask any follow-up questions about this test or the concepts involved.")
+        
+        if "chat_history" not in st.session_state:
+            st.session_state.chat_history = []
+
+        # Display chat history
+        for message in st.session_state.chat_history:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
+
+        # Chat Input
+        if prompt := st.chat_input("Ex: Explain the difference between Statement I and II..."):
+            # Add user message to history
+            st.session_state.chat_history.append({"role": "user", "content": prompt})
+            with st.chat_message("user"):
+                st.markdown(prompt)
+
+            # Generate AI response
+            with st.chat_message("assistant"):
+                # We give the AI the context of the quiz it just generated
+                full_context = f"Context: The student is reviewing a NEET quiz. Question context: {str(st.session_state.quiz)}. Student Question: {prompt}"
+                response = client.models.generate_content(model=MODEL_ID, contents=full_context)
+                st.markdown(response.text)
+                st.session_state.chat_history.append({"role": "assistant", "content": response.text})
     if st.button("🔄 Take Another Test"):
         st.session_state.quiz = None
         st.session_state.submitted = False
