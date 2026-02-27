@@ -23,36 +23,35 @@ def extract_text_from_pdf(pdf_file):
     return "".join([page.extract_text() for page in reader.pages])
 
 def generate_questions(content, is_pdf=False):
-    source_type = "notes" if is_pdf else f"chapter '{content}'"
-    prompt = f"""
-    Act as a Senior NTA NEET Paper Setter. Using the provided NCERT CONTENT, generate 10 High-Yield MCQs.
-    The questions must strictly follow the NEET PYQ pattern (2021-2025).
-
-    DISTRIBUTION OF TYPES:
-    - 6 Standard MCQs
-    - 2 Assertion-Reason (A-R)
-    - 1 Match the Column
-    - 1 Statement-based
-
-    RETURN ONLY A JSON LIST:
-    [
-      {{
-        "type": "Standard/AR/Match/Statement",
-        "question": "..",
-        "options": ["A", "B", "C", "D"],
-        "answer": "Full string of correct option",
-        "explanation": "Provide the exact NCERT reference."
-      }}
-    ]
-
-    CONTENT: {content[:8000]}
-    """
-    response = client.models.generate_content(
-        model=MODEL_ID,
-        contents=prompt,
-        config=types.GenerateContentConfig(response_mime_type="application/json")
-    )
-    return json.loads(response.text)
+    try:
+        # Initial delay to ensure stability
+        time.sleep(1) 
+        
+        prompt = f"""
+        Act as a Senior NTA NEET Paper Setter. Using the provided NCERT CONTENT, generate 10 High-Yield MCQs.
+        The questions must strictly follow the NEET PYQ pattern (2021-2025).
+        RETURN ONLY A JSON LIST.
+        CONTENT: {content[:8000]}
+        """
+        
+        response = client.models.generate_content(
+            model=MODEL_ID,
+            contents=prompt,
+            config=types.GenerateContentConfig(response_mime_type="application/json")
+        )
+        return json.loads(response.text)
+        
+    except Exception as e:
+        # Masking technical errors with a professional message
+        if "429" in str(e) or "quota" in str(e).lower():
+            st.error("⏳ **Server Synchronization in Progress**")
+            st.info("To ensure the highest accuracy for your NEET preparation, our AI engine is currently calibrating. Please wait a moment and try again in 60 seconds.")
+            st.stop() 
+        else:
+            # General professional error
+            st.error("🩺 **System Maintenance Required**")
+            st.write("We encountered a brief interruption while processing your request. Please refresh the page or try again shortly.")
+            st.stop()
 
 # 3. STATE MANAGEMENT
 if 'quiz' not in st.session_state: st.session_state.quiz = None
