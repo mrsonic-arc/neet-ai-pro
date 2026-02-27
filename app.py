@@ -165,67 +165,67 @@ if st.session_state.quiz:
             st.session_state.submitted = True
             st.rerun()
     else:
-        # Scoring
+        # 1. Scoring Logic & Data Preparation for Report Card
         correct_count = 0
         wrong_count = 0
         skipped_count = 0
+        report_data = []
+
         for i, q in enumerate(st.session_state.quiz):
             c_ans = q.get('answer') or q.get('correct_answer') or q.get('correct')
             u_ans = st.session_state.user_answers.get(i)
-            if u_ans == c_ans: correct_count += 1
-            elif u_ans == "Not Attempted": skipped_count += 1
-            else: wrong_count += 1
+            
+            if u_ans == c_ans:
+                correct_count += 1
+                result_status = "✅ Correct"
+            elif u_ans == "Not Attempted":
+                skipped_count += 1
+                result_status = "⚠️ Skipped"
+            else:
+                wrong_count += 1
+                result_status = "❌ Incorrect"
+            
+            # Store data for the Summary Table
+            report_data.append({
+                "Q.No": i + 1,
+                "Your Choice": u_ans,
+                "Correct Answer": c_ans,
+                "Status": result_status
+            })
         
         score = (correct_count * 4) - (wrong_count * 1)
         accuracy = (correct_count / len(st.session_state.quiz)) * 100
         
+        # 2. Display Metrics
         st.header(f"📊 Results: {score} Marks")
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Score", score)
         c2.metric("Accuracy", f"{accuracy:.1f}%")
         c3.metric("Correct ✅", correct_count)
         c4.metric("Wrong ❌", wrong_count)
-        
         st.progress(accuracy / 100)
         
-       st.divider()
-        st.subheader("📝 Question-by-Question Review")
+        # 3. NEW FEATURE: The Quick-View Report Card
+        st.divider()
+        st.subheader("📋 Performance Report Card")
+        st.write("Review your selections against the correct NCERT keys at a glance:")
+        st.table(report_data) 
+        
+        # 4. Detailed Question-by-Question Review (Explanations)
+        st.divider()
+        st.subheader("📝 Detailed NCERT Analysis")
 
         for i, q in enumerate(st.session_state.quiz):
             u_ans = st.session_state.user_answers.get(i)
             c_ans = q.get('answer') or q.get('correct_answer') or q.get('correct')
             
-            # Status icon and color based on performance
-            if u_ans == c_ans:
-                icon = "✅"
-                color = "green"
-            elif u_ans == "Not Attempted":
-                icon = "⚠️"
-                color = "orange"
-            else:
-                icon = "❌"
-                color = "red"
-
-            with st.expander(f"{icon} Question {i+1}"):
+            status_icon = "✅" if u_ans == c_ans else ("⚠️" if u_ans == "Not Attempted" else "❌")
+            
+            with st.expander(f"{status_icon} View Explanation for Q{i+1}"):
                 st.write(f"**{q['question']}**")
-                
-                # Create two columns for side-by-side comparison
-                col_u, col_c = st.columns(2)
-                
-                with col_u:
-                    if u_ans == c_ans:
-                        st.success(f"**Your Choice:**\n\n{u_ans}")
-                    elif u_ans == "Not Attempted":
-                        st.warning(f"**Your Choice:**\n\nSkipped")
-                    else:
-                        st.error(f"**Your Choice:**\n\n{u_ans}")
-                
-                with col_c:
-                    st.success(f"**Correct Answer:**\n\n{c_ans}")
-                
-                st.divider()
                 st.info(f"📖 **NCERT Explanation:** {q.get('explanation', 'Refer to NCERT for deeper understanding.')}")
 
+        # 5. Doubt-Buster Chat
         st.divider()
         st.subheader("💬 Doubt-Buster Chat")
         for msg in st.session_state.chat_history:
@@ -240,8 +240,9 @@ if st.session_state.quiz:
                     st.markdown(res.text)
                     st.session_state.chat_history.append({"role": "assistant", "content": res.text})
                 except: st.error("⏳ Server busy.")
-
+        
         if st.button("🔄 New Test"):
             st.session_state.quiz = None
             st.session_state.submitted = False
+            st.session_state.chat_history = []
             st.rerun()
