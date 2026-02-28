@@ -103,7 +103,7 @@ with tab4:
     selected_topics = []
 
     if input_mode == "Type My Own":
-        custom_input = st.text_area("Enter chapters (one per line):", placeholder="Example:\nRotational Motion\nChemical Bonding\nHuman Reproduction")
+        custom_input = st.text_area("Enter chapters (one per line):", placeholder="Example:\nRotational Motion\nChemical Bonding")
         selected_topics = [line.strip() for line in custom_input.split('\n') if line.strip()]
 
     elif input_mode == "Scan Syllabus PDF":
@@ -117,29 +117,17 @@ with tab4:
                     st.error("Could not read text. This PDF might be an image-only scan.")
                 else:
                     try:
-                        extraction_prompt = f"""
-                        Extract ONLY the names of NEET chapters/topics from this coaching schedule.
-                        Ignore dates, test codes (like M-1, PT-2), and room numbers.
-                        Return them as a simple list separated by commas.
-                        Text: {clean_text}
-                        """
+                        extraction_prompt = f"Extract ONLY the names of NEET chapters from this schedule as a comma-separated list: {clean_text}"
                         res = client.models.generate_content(model=MODEL_ID, contents=extraction_prompt)
-                        
                         if res.text:
                             extracted_list = [t.strip() for t in res.text.split(',') if len(t.strip()) > 2]
-                            selected_topics = st.multiselect("Confirm/Edit Chapters Found:", extracted_list, default=extracted_list)
-                        else:
-                            st.warning("AI couldn't find distinct topics. Please use 'Manual Type'.")
+                            selected_topics = st.multiselect("Confirm Chapters:", extracted_list, default=extracted_list)
                     except Exception as e:
-                        st.error("AI Extraction failed due to PDF complexity.")
+                        st.error("AI Extraction failed. Please use 'Manual Type'.")
 
     else: # Full NCERT List
-        major_units = [
-            "Physics: Mechanics", "Physics: Thermodynamics", "Physics: Optics", "Physics: Modern Physics",
-            "Chemistry: Organic (GOC)", "Chemistry: Inorganic (p-Block)", "Chemistry: Physical",
-            "Biology: Human Physiology", "Biology: Genetics & Evolution", "Biology: Ecology"
-        ]
-        selected_topics = st.multiselect("Select Units to Cover:", major_units)
+        major_units = ["Mechanics", "Thermodynamics", "Optics", "Genetics", "Human Physiology", "Organic Chem"]
+        selected_topics = st.multiselect("Select Units:", major_units)
 
     # 2. Date and Plan Generation
     test_date = st.date_input("Target Date for Test:", datetime(2026, 5, 3))
@@ -151,26 +139,34 @@ with tab4:
         if days_left > 0 and selected_topics:
             st.subheader(f"🔥 {days_left}-Day Execution Plan")
             
-            # This string will hold the data for our downloadable file
-            roadmap_text = f"NEET 2026 ROADMAP\nTarget Date: {test_date}\nGenerated on: {today}\n" + "="*30 + "\n\n"
+            # String for the downloadable file
+            roadmap_text = f"NEET 2026 ROADMAP\nTarget: {test_date}\n" + "="*20 + "\n"
             
             for i in range(days_left):
                 plan_date = today + timedelta(days=i)
                 date_str = plan_date.strftime('%d %b (%a)')
                 
+                # NTA Strategy: Revision every 4th day
                 if (i + 1) % 4 == 0:
                     st.warning(f"🔄 **{date_str}: REVISION DAY**")
+                    st.write("📝 Solve previous year questions (PYQs) for the last 3 topics.")
                     roadmap_text += f"{date_str}: REVISION & MOCK TEST\n"
                 else:
                     topic = selected_topics[i % len(selected_topics)]
                     st.success(f"🎯 **{date_str}: {topic}**")
                     roadmap_text += f"{date_str}: {topic}\n"
                     
-                    # NTA subject hacks for specific topics
+                    # Subject-specific NTA tips (Fixed Indentation)
                     if any(word in topic.lower() for word in ["physic", "motion", "mechanic"]):
+                        st.write("💡 **NTA Tip:** Physics is 70% numerical. Practice circuit diagrams and free-body diagrams.")
                         
+                    
                     elif any(word in topic.lower() for word in ["bio", "plant", "human", "cell"]):
+                        st.write("💡 **NTA Tip:** Focus on NCERT labels and 'Statement I & II' questions.")
                         
+                    
+                    else:
+                        st.write("💡 **NTA Tip:** Focus on chemical trends and named reactions.")
 
             # 3. DOWNLOAD BUTTON
             st.divider()
@@ -182,7 +178,7 @@ with tab4:
             )
             st.balloons()
         else:
-            st.error("Please select topics and ensure the Target Date is in the future!")
+            st.error("Please select topics and ensure the date is in the future.")
             
 # 5. SHARED QUIZ DISPLAY & SCORING
 if st.session_state.quiz:
