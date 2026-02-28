@@ -110,15 +110,13 @@ with tab4:
         s_file = st.file_uploader("Upload Coaching Syllabus PDF", type="pdf", key="syllabus_upload")
         if s_file:
             with st.spinner("🔍 AI is filtering your Syllabus..."):
-                # Extract and sanitize text to prevent ClientError
                 raw_text = extract_text_from_pdf(s_file)
-                clean_text = " ".join(raw_text.split())[:6000] # Removes extra spaces/newlines
+                clean_text = " ".join(raw_text.split())[:6000] 
                 
                 if not clean_text.strip():
                     st.error("Could not read text. This PDF might be an image-only scan.")
                 else:
                     try:
-                        # Professional Prompt for Coaching Schedules
                         extraction_prompt = f"""
                         Extract ONLY the names of NEET chapters/topics from this coaching schedule.
                         Ignore dates, test codes (like M-1, PT-2), and room numbers.
@@ -128,14 +126,12 @@ with tab4:
                         res = client.models.generate_content(model=MODEL_ID, contents=extraction_prompt)
                         
                         if res.text:
-                            # Clean the resulting string into a proper list
                             extracted_list = [t.strip() for t in res.text.split(',') if len(t.strip()) > 2]
                             selected_topics = st.multiselect("Confirm/Edit Chapters Found:", extracted_list, default=extracted_list)
                         else:
                             st.warning("AI couldn't find distinct topics. Please use 'Manual Type'.")
                     except Exception as e:
                         st.error("AI Extraction failed due to PDF complexity.")
-                        st.info("💡 Tip: Copy the syllabus text from the PDF and paste it in 'Type My Own' mode.")
 
     else: # Full NCERT List
         major_units = [
@@ -154,29 +150,36 @@ with tab4:
         
         if days_left > 0 and selected_topics:
             st.subheader(f"🔥 {days_left}-Day Execution Plan")
-            st.write("---")
             
-            # Progress Tracking (Visual Motivation)
-            st.progress(0)
-
+            # This string will hold the data for our downloadable file
+            roadmap_text = f"NEET 2026 ROADMAP\nTarget Date: {test_date}\nGenerated on: {today}\n" + "="*30 + "\n\n"
+            
             for i in range(days_left):
                 plan_date = today + timedelta(days=i)
+                date_str = plan_date.strftime('%d %b (%a)')
                 
-                # NTA Strategy: Revision every 4th day
                 if (i + 1) % 4 == 0:
-                    st.warning(f"🔄 **{plan_date.strftime('%d %b')}: REVISION DAY**")
-                    st.caption("🧠 Brain Tip: Solve the 'Incorrect' MCQs from your AI Tests. No new topics!")
+                    st.warning(f"🔄 **{date_str}: REVISION DAY**")
+                    roadmap_text += f"{date_str}: REVISION & MOCK TEST\n"
                 else:
-                    # Circularly assign topics from the list
                     topic = selected_topics[i % len(selected_topics)]
-                    st.success(f"🎯 **{plan_date.strftime('%d %b')}: {topic}**")
+                    st.success(f"🎯 **{date_str}: {topic}**")
+                    roadmap_text += f"{date_str}: {topic}\n"
                     
-                    # Subject-specific NTA tips
+                    # NTA subject hacks for specific topics
                     if any(word in topic.lower() for word in ["physic", "motion", "mechanic"]):
-                        st.write("💡 *Focus: Solve 15-20 Numericals. Check units!*")
-                    elif any(word in topic.lower() for word in ["bio", "plant", "human"]):
-                        st.write("💡 *Focus: Read NCERT line-by-line. Mark the 'Exceptions'.*")
-        
+                        
+                    elif any(word in topic.lower() for word in ["bio", "plant", "human", "cell"]):
+                        
+
+            # 3. DOWNLOAD BUTTON
+            st.divider()
+            st.download_button(
+                label="📥 Download Roadmap as Text File",
+                data=roadmap_text,
+                file_name=f"NEET_Roadmap_{test_date}.txt",
+                mime="text/plain"
+            )
             st.balloons()
         else:
             st.error("Please select topics and ensure the Target Date is in the future!")
