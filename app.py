@@ -95,32 +95,92 @@ with tab3:
 
 with tab4:
     st.header("📅 NTA Exam Roadmap")
+    st.info("Plan your path to 720/720. Success in NEET 2026 requires strict revision cycles.")
+
+    # 1. Syllabus Input Methods
     input_mode = st.radio("Input Method:", ["Type My Own", "Scan Syllabus PDF", "Full NCERT List"])
     
     selected_topics = []
+
     if input_mode == "Type My Own":
-        custom_input = st.text_area("Enter chapters (one per line):")
+        custom_input = st.text_area("Enter chapters (one per line):", placeholder="Example:\nRotational Motion\nChemical Bonding\nHuman Reproduction")
         selected_topics = [line.strip() for line in custom_input.split('\n') if line.strip()]
+
     elif input_mode == "Scan Syllabus PDF":
-        s_file = st.file_uploader("Upload Syllabus PDF", type="pdf")
+        s_file = st.file_uploader("Upload Coaching Syllabus PDF", type="pdf", key="syllabus_upload")
         if s_file:
-            raw_text = extract_text_from_pdf(s_file)
-            res = client.models.generate_content(model=MODEL_ID, contents=f"List only the chapter names: {raw_text[:4000]}")
-            selected_topics = st.multiselect("Topics:", res.text.split(','), default=res.text.split(','))
-    else:
-        selected_topics = st.multiselect("Select Units:", ["Mechanics", "Genetics", "Organic Chem", "Optics"])
-
-    test_date = st.date_input("Target Date:", datetime(2026, 5, 3))
-    if st.button("🚀 Create Roadmap"):
-        days = (test_date - datetime.now().date()).days
-        if days > 0 and selected_topics:
-            for i in range(days):
-                d = datetime.now().date() + timedelta(days=i)
-                if (i + 1) % 4 == 0:
-                    st.warning(f"🔄 {d.strftime('%d %b')}: Revision Day")
+            with st.spinner("🔍 AI is filtering your Syllabus..."):
+                # Extract and sanitize text to prevent ClientError
+                raw_text = extract_text_from_pdf(s_file)
+                clean_text = " ".join(raw_text.split())[:6000] # Removes extra spaces/newlines
+                
+                if not clean_text.strip():
+                    st.error("Could not read text. This PDF might be an image-only scan.")
                 else:
-                    st.success(f"🎯 {d.strftime('%d %b')}: {selected_topics[i % len(selected_topics)]}")
+                    try:
+                        # Professional Prompt for Coaching Schedules
+                        extraction_prompt = f"""
+                        Extract ONLY the names of NEET chapters/topics from this coaching schedule.
+                        Ignore dates, test codes (like M-1, PT-2), and room numbers.
+                        Return them as a simple list separated by commas.
+                        Text: {clean_text}
+                        """
+                        res = client.models.generate_content(model=MODEL_ID, contents=extraction_prompt)
+                        
+                        if res.text:
+                            # Clean the resulting string into a proper list
+                            extracted_list = [t.strip() for t in res.text.split(',') if len(t.strip()) > 2]
+                            selected_topics = st.multiselect("Confirm/Edit Chapters Found:", extracted_list, default=extracted_list)
+                        else:
+                            st.warning("AI couldn't find distinct topics. Please use 'Manual Type'.")
+                    except Exception as e:
+                        st.error("AI Extraction failed due to PDF complexity.")
+                        st.info("💡 Tip: Copy the syllabus text from the PDF and paste it in 'Type My Own' mode.")
 
+    else: # Full NCERT List
+        major_units = [
+            "Physics: Mechanics", "Physics: Thermodynamics", "Physics: Optics", "Physics: Modern Physics",
+            "Chemistry: Organic (GOC)", "Chemistry: Inorganic (p-Block)", "Chemistry: Physical",
+            "Biology: Human Physiology", "Biology: Genetics & Evolution", "Biology: Ecology"
+        ]
+        selected_topics = st.multiselect("Select Units to Cover:", major_units)
+
+    # 2. Date and Plan Generation
+    test_date = st.date_input("Target Date for Test:", datetime(2026, 5, 3))
+    
+    if st.button("🚀 Create Roadmap", use_container_width=True):
+        today = datetime.now().date()
+        days_left = (test_date - today).days
+        
+        if days_left > 0 and selected_topics:
+            st.subheader(f"🔥 {days_left}-Day Execution Plan")
+            st.write("---")
+            
+            # Progress Tracking (Visual Motivation)
+            st.progress(0)
+
+            for i in range(days_left):
+                plan_date = today + timedelta(days=i)
+                
+                # NTA Strategy: Revision every 4th day
+                if (i + 1) % 4 == 0:
+                    st.warning(f"🔄 **{plan_date.strftime('%d %b')}: REVISION DAY**")
+                    st.caption("🧠 Brain Tip: Solve the 'Incorrect' MCQs from your AI Tests. No new topics!")
+                else:
+                    # Circularly assign topics from the list
+                    topic = selected_topics[i % len(selected_topics)]
+                    st.success(f"🎯 **{plan_date.strftime('%d %b')}: {topic}**")
+                    
+                    # Subject-specific NTA tips
+                    if any(word in topic.lower() for word in ["physic", "motion", "mechanic"]):
+                        st.write("💡 *Focus: Solve 15-20 Numericals. Check units!*")
+                    elif any(word in topic.lower() for word in ["bio", "plant", "human"]):
+                        st.write("💡 *Focus: Read NCERT line-by-line. Mark the 'Exceptions'.*")
+        
+            st.balloons()
+        else:
+            st.error("Please select topics and ensure the Target Date is in the future!")
+            
 # 5. SHARED QUIZ DISPLAY & SCORING
 if st.session_state.quiz:
     st.divider()
