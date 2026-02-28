@@ -6,32 +6,33 @@ from PyPDF2 import PdfReader
 import time
 from datetime import datetime, timedelta
 
-# 1. SETUP
+# 1. SETUP & CONFIG
 st.set_page_config(page_title="NEET AI Master 2026", page_icon="🩺", layout="wide")
 
-# Standardizing the 2026 Client
 if "GEMINI_KEY" not in st.secrets:
-    st.error("Missing API Key in Secrets!")
+    st.error("Missing API Key! Add 'GEMINI_KEY' to Streamlit Secrets.")
     st.stop()
 
 client = genai.Client(api_key=st.secrets["GEMINI_KEY"])
-MODEL_ID = "gemini-2.0-flash" # The 2026 standard for speed/accuracy
+MODEL_ID = "gemini-2.0-flash" 
 
-# 2. STATE INITIALIZATION
-if 'quiz' not in st.session_state: st.session_state.quiz = None
-if 'user_answers' not in st.session_state: st.session_state.user_answers = {}
-if 'submitted' not in st.session_state: st.session_state.submitted = False
-if 'camera_active' not in st.session_state: st.session_state.camera_active = False
+# 2. CORE HELPER FUNCTIONS (Must be at the top)
+def extract_text_from_pdf(pdf_file):
+    try:
+        reader = PdfReader(pdf_file)
+        text = "".join([page.extract_text() for page in reader.pages if page.extract_text()])
+        return text
+    except Exception as e:
+        st.error(f"PDF Error: {e}")
+        return ""
 
-# 3. CORE FUNCTIONS
 def generate_questions(content, subject="Biology"):
-    # Tailoring the prompt for the NTA 2026 Pattern
     prompt = f"""
     Role: Senior NTA Paper Setter for NEET 2026.
     Content: {content[:10000]} 
     Task: Generate 10 MCQs (4 Statement-based, 3 Assertion-Reason, 3 Standard).
-    Subject Style: {subject} (If Physics, include numericals; if Bio, include NCERT line-specific traps).
-    Format: Return ONLY a JSON list of objects with: question, options (list of 4), answer (must match one option exactly), explanation.
+    Subject Style: {subject}.
+    Format: Return ONLY a JSON list of objects with: question, options (list of 4), answer, explanation.
     """
     try:
         response = client.models.generate_content(
@@ -41,8 +42,14 @@ def generate_questions(content, subject="Biology"):
         )
         return json.loads(response.text)
     except Exception as e:
-        st.error(f"NTA Engine Busy. Error: {str(e)}")
+        st.error(f"NTA Engine Busy: {e}")
         return None
+
+# 3. STATE MANAGEMENT
+if 'quiz' not in st.session_state: st.session_state.quiz = None
+if 'user_answers' not in st.session_state: st.session_state.user_answers = {}
+if 'submitted' not in st.session_state: st.session_state.submitted = False
+if 'camera_active' not in st.session_state: st.session_state.camera_active = False
 
 # 4. INTERFACE
 st.title("🩺 NEET AI Master 2026")
@@ -50,118 +57,71 @@ tab1, tab2, tab3, tab4 = st.tabs(["📖 Chapter", "📄 PDF Master", "📸 NCERT
 
 with tab1:
     col_in, col_sub = st.columns([3, 1])
-    chapter = col_in.text_input("Enter Topic (e.g., 'Morphology of Flowering Plants')")
+    chapter = col_in.text_input("Enter Topic (e.g., 'Genetics')")
     subject = col_sub.selectbox("Subject", ["Biology", "Physics", "Chemistry"], key="tab1_sub")
     
     if st.button("Generate Test", use_container_width=True):
-        with st.spinner("Analyzing NCERT Syllabus..."):
+        with st.spinner("Analyzing NCERT..."):
             st.session_state.quiz = generate_questions(chapter, subject)
             st.session_state.submitted = False
+            st.session_state.user_answers = {}
             st.rerun()
 
 with tab2:
     uploaded_file = st.file_uploader("Upload NCERT PDF", type="pdf")
     if uploaded_file:
-        reader = PdfReader(uploaded_file)
-        full_text = "".join([p.extract_text() for p in reader.pages])
         if st.button("Extract MCQs from PDF"):
-            st.session_state.quiz = generate_questions(full_text, "PDF-Based")
-            st.session_state.submitted = False
-            st.rerun()
+            with st.spinner("Reading PDF..."):
+                full_text = extract_text_from_pdf(uploaded_file)
+                st.session_state.quiz = generate_questions(full_text, "PDF-Based")
+                st.session_state.submitted = False
+                st.session_state.user_answers = {}
+                st.rerun()
 
 with tab3:
     st.subheader("📸 NCERT Lens")
-    # Improved Camera Toggle Logic
     cam_toggle = st.toggle("Power Camera", value=st.session_state.camera_active)
     st.session_state.camera_active = cam_toggle
     
     if st.session_state.camera_active:
         img = st.camera_input("Scan any NCERT Diagram")
         if img:
-            with st.spinner("Identifying labels..."):
+            with st.spinner("Analyzing..."):
                 res = client.models.generate_content(
                     model=MODEL_ID,
-                    contents=[
-                        "Label this diagram and give 3 NEET 'Tricky points' from NCERT.",
-                        types.Part.from_bytes(data=img.getvalue(), mime_type="image/jpeg")
-                    ]
+                    contents=["Label this diagram and give 3 NEET tips.", types.Part.from_bytes(data=img.getvalue(), mime_type="image/jpeg")]
                 )
                 st.info(res.text)
 
 with tab4:
     st.header("📅 NTA Exam Roadmap")
-    st.info("Plan your path to 720/720. Upload a syllabus PDF or type your custom targets.")
-
-    # 1. Syllabus Input Methods
-    input_mode = st.radio("Syllabus Input Method:", ["Type My Own", "Scan Syllabus PDF", "Full NCERT List"])
+    input_mode = st.radio("Input Method:", ["Type My Own", "Scan Syllabus PDF", "Full NCERT List"])
     
     selected_topics = []
-
     if input_mode == "Type My Own":
-        custom_input = st.text_area("Enter chapters (one per line):", placeholder="Example:\nRotational Motion\nChemical Bonding\nHuman Reproduction")
+        custom_input = st.text_area("Enter chapters (one per line):")
         selected_topics = [line.strip() for line in custom_input.split('\n') if line.strip()]
-
     elif input_mode == "Scan Syllabus PDF":
-        syllabus_file = st.file_uploader("Upload Syllabus/Schedule PDF", type="pdf", key="syllabus_pdf")
-        if syllabus_file:
-            with st.spinner("AI is extracting topics from PDF..."):
-                raw_text = extract_text_from_pdf(syllabus_file)
-                # Ask AI to extract just the topic names
-                extraction_prompt = f"Extract a clean list of NEET chapter names from this text. Return ONLY the names separated by commas: {raw_text[:5000]}"
-                res = client.models.generate_content(model=MODEL_ID, contents=extraction_prompt)
-                extracted_list = res.text.split(',')
-                selected_topics = st.multiselect("Confirm Extracted Topics:", extracted_list, default=extracted_list)
+        s_file = st.file_uploader("Upload Syllabus PDF", type="pdf")
+        if s_file:
+            raw_text = extract_text_from_pdf(s_file)
+            res = client.models.generate_content(model=MODEL_ID, contents=f"List only the chapter names: {raw_text[:4000]}")
+            selected_topics = st.multiselect("Topics:", res.text.split(','), default=res.text.split(','))
+    else:
+        selected_topics = st.multiselect("Select Units:", ["Mechanics", "Genetics", "Organic Chem", "Optics"])
 
-    else: # Full NCERT List
-        major_units = [
-            "Physics: Mechanics", "Physics: Electrodynamics", "Physics: Optics", "Physics: Modern Physics",
-            "Chemistry: Physical", "Chemistry: Organic", "Chemistry: Inorganic",
-            "Biology: Diversity", "Biology: Genetics", "Biology: Physiology", "Biology: Ecology"
-        ]
-        selected_topics = st.multiselect("Select Units to Cover:", major_units)
-
-    # 2. Date and Plan Generation
-    test_date = st.date_input("Target Test Date:", datetime(2026, 5, 3))
-    
-    if st.button("🚀 Create My Personalized Roadmap"):
-        today = datetime.now().date()
-        days_left = (test_date - today).days
-        
-        if days_left > 0 and selected_topics:
-            st.subheader(f"🔥 {days_left}-Day Execution Plan")
-            
-            # Progress Bar for Motivation
-            st.write("Current Progress")
-            st.progress(0)
-
-            for i in range(days_left):
-                plan_date = today + timedelta(days=i)
-                st.markdown("---")
-                
-                # NTA Spaced Repetition Logic (Revision every 4th day)
+    test_date = st.date_input("Target Date:", datetime(2026, 5, 3))
+    if st.button("🚀 Create Roadmap"):
+        days = (test_date - datetime.now().date()).days
+        if days > 0 and selected_topics:
+            for i in range(days):
+                d = datetime.now().date() + timedelta(days=i)
                 if (i + 1) % 4 == 0:
-                    st.warning(f"🔄 **{plan_date.strftime('%d %b')}: Revision & Mock Test**")
-                    st.caption("🧠 Brain Tip: Re-solve 'Incorrect' questions from Tab 2. No new theory today.")
+                    st.warning(f"🔄 {d.strftime('%d %b')}: Revision Day")
                 else:
-                    # Assign topics from the list
-                    topic = selected_topics[i % len(selected_topics)]
-                    st.success(f"🎯 **{plan_date.strftime('%d %b')}: Target - {topic}**")
-                    
-                    # Subject-Specific Study Hacks
-                    if "Physic" in topic or "Motion" in topic or "Mechanic" in topic:
-                        st.write("💡 **NTA Hack:** Physics is about application. Solve 20 Numericals today.")
-                        
-                    elif "Bio" in topic or "Plant" in topic or "Human" in topic:
-                        st.write("💡 **NTA Hack:** Biology is about NCERT lines. Read Statement-based MCQs.")
-                        
-                    else:
-                        st.write("💡 **NTA Hack:** Chemistry needs memory + logic. Write down all reaction mechanisms.")
+                    st.success(f"🎯 {d.strftime('%d %b')}: {selected_topics[i % len(selected_topics)]}")
 
-            st.balloons()
-        else:
-            st.error("Please provide topics and a valid future date!")
-            
-# 5. SHARED QUIZ DISPLAY
+# 5. SHARED QUIZ DISPLAY & SCORING
 if st.session_state.quiz:
     st.divider()
     if not st.session_state.submitted:
@@ -175,9 +135,21 @@ if st.session_state.quiz:
             st.rerun()
     else:
         st.subheader("📊 Result Analysis")
-        # Logic for score calculation
-        correct = sum(1 for i, q in enumerate(st.session_state.quiz) if st.session_state.user_answers.get(i) == q['answer'])
+        correct = 0
+        report_card = []
+        for i, q in enumerate(st.session_state.quiz):
+            u_ans = st.session_state.user_answers.get(i)
+            is_correct = u_ans == q['answer']
+            if is_correct: correct += 1
+            report_card.append({"Q": i+1, "Your Ans": u_ans, "Correct": q['answer'], "Result": "✅" if is_correct else "❌"})
+        
         st.metric("Score", f"{correct}/{len(st.session_state.quiz)}")
+        st.table(report_card)
+        
+        with st.expander("Show Explanations"):
+            for i, q in enumerate(st.session_state.quiz):
+                st.write(f"**Q{i+1}:** {q['explanation']}")
+        
         if st.button("Restart Test"):
             st.session_state.quiz = None
             st.rerun()
