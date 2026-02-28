@@ -89,22 +89,78 @@ with tab3:
                 st.info(res.text)
 
 with tab4:
-    st.subheader("📅 NTA Exam Roadmap")
-    target_date = st.date_input("When is your next Test?", datetime(2026, 5, 3))
-    topics = st.multiselect("Select Chapters", ["Genetics", "Ray Optics", "Thermodynamics", "p-Block"])
-    
-    if st.button("Generate Roadmap"):
-        days_left = (target_date - datetime.now().date()).days
-        if days_left > 0:
-            st.write(f"### 🗓️ {days_left} Days Remaining")
-            for i in range(days_left):
-                day_label = (datetime.now() + timedelta(days=i)).strftime("%A, %d %b")
-                if (i + 1) % 4 == 0:
-                    st.warning(f"🔄 {day_label}: Revision Day (Full Mock)")
-                else:
-                    topic = topics[i % len(topics)] if topics else "General Revision"
-                    st.success(f"🎯 {day_label}: Target - {topic}")
+    st.header("📅 NTA Exam Roadmap")
+    st.info("Plan your path to 720/720. Upload a syllabus PDF or type your custom targets.")
 
+    # 1. Syllabus Input Methods
+    input_mode = st.radio("Syllabus Input Method:", ["Type My Own", "Scan Syllabus PDF", "Full NCERT List"])
+    
+    selected_topics = []
+
+    if input_mode == "Type My Own":
+        custom_input = st.text_area("Enter chapters (one per line):", placeholder="Example:\nRotational Motion\nChemical Bonding\nHuman Reproduction")
+        selected_topics = [line.strip() for line in custom_input.split('\n') if line.strip()]
+
+    elif input_mode == "Scan Syllabus PDF":
+        syllabus_file = st.file_uploader("Upload Syllabus/Schedule PDF", type="pdf", key="syllabus_pdf")
+        if syllabus_file:
+            with st.spinner("AI is extracting topics from PDF..."):
+                raw_text = extract_text_from_pdf(syllabus_file)
+                # Ask AI to extract just the topic names
+                extraction_prompt = f"Extract a clean list of NEET chapter names from this text. Return ONLY the names separated by commas: {raw_text[:5000]}"
+                res = client.models.generate_content(model=MODEL_ID, contents=extraction_prompt)
+                extracted_list = res.text.split(',')
+                selected_topics = st.multiselect("Confirm Extracted Topics:", extracted_list, default=extracted_list)
+
+    else: # Full NCERT List
+        major_units = [
+            "Physics: Mechanics", "Physics: Electrodynamics", "Physics: Optics", "Physics: Modern Physics",
+            "Chemistry: Physical", "Chemistry: Organic", "Chemistry: Inorganic",
+            "Biology: Diversity", "Biology: Genetics", "Biology: Physiology", "Biology: Ecology"
+        ]
+        selected_topics = st.multiselect("Select Units to Cover:", major_units)
+
+    # 2. Date and Plan Generation
+    test_date = st.date_input("Target Test Date:", datetime(2026, 5, 3))
+    
+    if st.button("🚀 Create My Personalized Roadmap"):
+        today = datetime.now().date()
+        days_left = (test_date - today).days
+        
+        if days_left > 0 and selected_topics:
+            st.subheader(f"🔥 {days_left}-Day Execution Plan")
+            
+            # Progress Bar for Motivation
+            st.write("Current Progress")
+            st.progress(0)
+
+            for i in range(days_left):
+                plan_date = today + timedelta(days=i)
+                st.markdown("---")
+                
+                # NTA Spaced Repetition Logic (Revision every 4th day)
+                if (i + 1) % 4 == 0:
+                    st.warning(f"🔄 **{plan_date.strftime('%d %b')}: Revision & Mock Test**")
+                    st.caption("🧠 Brain Tip: Re-solve 'Incorrect' questions from Tab 2. No new theory today.")
+                else:
+                    # Assign topics from the list
+                    topic = selected_topics[i % len(selected_topics)]
+                    st.success(f"🎯 **{plan_date.strftime('%d %b')}: Target - {topic}**")
+                    
+                    # Subject-Specific Study Hacks
+                    if "Physic" in topic or "Motion" in topic or "Mechanic" in topic:
+                        st.write("💡 **NTA Hack:** Physics is about application. Solve 20 Numericals today.")
+                        
+                    elif "Bio" in topic or "Plant" in topic or "Human" in topic:
+                        st.write("💡 **NTA Hack:** Biology is about NCERT lines. Read Statement-based MCQs.")
+                        
+                    else:
+                        st.write("💡 **NTA Hack:** Chemistry needs memory + logic. Write down all reaction mechanisms.")
+
+            st.balloons()
+        else:
+            st.error("Please provide topics and a valid future date!")
+            
 # 5. SHARED QUIZ DISPLAY
 if st.session_state.quiz:
     st.divider()
