@@ -116,10 +116,6 @@ with tab3:
                 st.markdown("### 🧬 AI Analysis")
                 st.info(response.text)
                 
-
-[Image of the human respiratory system diagram with labels for alveoli and bronchioles]
-
-
 # 5. DISPLAY & SCORING
 if st.session_state.quiz:
     st.divider()
