@@ -8,241 +8,150 @@ import time
 # 1. SETUP & CONFIG
 st.set_page_config(page_title="NEET AI Master 2026", page_icon="🩺", layout="wide")
 
-try:
-    API_KEY = st.secrets["GEMINI_KEY"]
-    client = genai.Client(api_key=API_KEY)
-except Exception:
-    st.error("🔑 API Key Missing! Set 'GEMINI_KEY' in Streamlit Secrets.")
+# Corrected API Initialization
+if "GEMINI_KEY" not in st.secrets:
+    st.error("🔑 API Key Missing! Set 'GEMINI_KEY' in Streamlit Secrets.")
+    st.stop()
 
-MODEL_ID = "gemini-3-flash-preview"
+client = genai.Client(api_key=st.secrets["GEMINI_KEY"])
+MODEL_ID = "gemini-2.0-flash" # Stable 2026 Production Model
 
 # 2. HELPER FUNCTIONS
 def extract_text_from_pdf(pdf_file):
-    reader = PdfReader(pdf_file)
-    return "".join([page.extract_text() for page in reader.pages])
+    try:
+        reader = PdfReader(pdf_file)
+        return "".join([page.extract_text() for page in reader.pages if page.extract_text()])
+    except Exception as e:
+        st.error(f"Error reading PDF: {e}")
+        return ""
 
-def generate_questions(content, is_pdf=False):
-    try:
-        time.sleep(1) 
-        prompt = f"""
-        Act as a Senior NTA NEET Paper Setter. Using the provided NCERT CONTENT, generate 10 High-Yield MCQs.
-        Follow NEET 2021-2025 patterns. Include Standard, A-R, and Statement-based questions.
-        RETURN ONLY A JSON LIST with keys: "type", "question", "options", "answer", "explanation".
-        CONTENT: {content[:8000]}
-        """
-        response = client.models.generate_content(
-            model=MODEL_ID,
-            contents=prompt,
-            config=types.GenerateContentConfig(response_mime_type="application/json")
-        )
-        return json.loads(response.text)
-    except Exception as e:
-        if "429" in str(e) or "quota" in str(e).lower():
-            st.error("⏳ **Server Synchronization in Progress**")
-            st.info("To ensure accuracy, our engine is calibrating. Please wait 60 seconds.")
-            st.stop()
-        else:
-            st.error("🩺 **System Maintenance Required**")
-            st.stop()
+def generate_questions(content):
+    try:
+        # Standardized prompt to ensure JSON keys are ALWAYS 'question', 'options', 'answer', 'explanation'
+        prompt = f"""
+        Act as a Senior NTA NEET Paper Setter. 
+        CONTENT: {content[:8000]}
+        Task: Generate 10 High-Yield MCQs (4 Statement-based, 3 A-R, 3 Standard).
+        Rules: 1. Use ONLY NCERT data. 2. Trap students on small details (e.g. units, scientist names).
+        JSON Format: [{{ "question": "", "options": ["", "", "", ""], "answer": "exact_option_text", "explanation": "" }}]
+        """
+        response = client.models.generate_content(
+            model=MODEL_ID,
+            contents=prompt,
+            config=types.GenerateContentConfig(response_mime_type="application/json")
+        )
+        return json.loads(response.text)
+    except Exception as e:
+        st.error(f"Engine Error: {str(e)}")
+        return None
 
 # 3. STATE MANAGEMENT
 if 'quiz' not in st.session_state: st.session_state.quiz = None
 if 'user_answers' not in st.session_state: st.session_state.user_answers = {}
 if 'submitted' not in st.session_state: st.session_state.submitted = False
 if 'chat_history' not in st.session_state: st.session_state.chat_history = []
+if 'camera_active' not in st.session_state: st.session_state.camera_active = False
 
 # 4. INTERFACE
 st.title("🩺 NEET AI Master 2026")
 tab1, tab2, tab3 = st.tabs(["📖 By Chapter", "📄 By PDF", "📸 NCERT Lens"])
 
 with tab1:
-    chapter = st.text_input("Enter NCERT Chapter Name:")
-    if st.button("Generate Test", key="btn_chapter"):
-        with st.spinner("AI is crafting questions..."):
-            st.session_state.quiz = generate_questions(chapter)
-            st.session_state.user_answers, st.session_state.submitted, st.session_state.chat_history = {}, False, []
-            st.rerun()
-            
-    if st.button("✨ Generate Revision Card", key="rev_card"):
-        with st.spinner("Summarizing NCERT highlights..."):
-            rev_prompt = f"Act as a NEET revision expert. For the topic '{chapter}', provide a concise revision card. Include: 1. A table of important Scientists and their discoveries. 2. A Mnemonic to remember complex lists. 3. Three 'Warning' points where students usually make mistakes."
-            res = client.models.generate_content(model=MODEL_ID, contents=rev_prompt)
-            st.success("📝 NCERT Revision Card")
-            st.markdown(res.text)
+    chapter = st.text_input("Enter NCERT Chapter Name:", placeholder="e.g. Molecular Basis of Inheritance")
+    col_a, col_b = st.columns(2)
+    with col_a:
+        if st.button("📝 Generate MCQ Test", key="btn_chapter", use_container_width=True):
+            with st.spinner("Analyzing Syllabus..."):
+                st.session_state.quiz = generate_questions(chapter)
+                st.session_state.user_answers, st.session_state.submitted = {}, False
+                st.rerun()
+    with col_b:
+        if st.button("✨ Revision Card", key="rev_card", use_container_width=True):
+            with st.spinner("Summarizing..."):
+                res = client.models.generate_content(model=MODEL_ID, contents=f"Create a NEET Revision Card for: {chapter}. Include a table of Scientists/Dates and 1 Mnemonic.")
+                st.session_state.rev_card = res.text
+
+    if 'rev_card' in st.session_state:
+        st.info("📝 NCERT Revision Card")
+        st.markdown(st.session_state.rev_card)
+        if st.button("Clear Card"): del st.session_state.rev_card; st.rerun()
 
 with tab2:
-    st.subheader("📄 PDF Data Extractor")
-    file = st.file_uploader("Upload NCERT PDF (e.g., Breathing & Exchange of Gases)", type="pdf")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        if file and st.button("📝 Generate MCQ Test", key="btn_pdf_quiz"):
-            with st.spinner("Extracting questions..."):
-                text = extract_text_from_pdf(file)
-                st.session_state.quiz = generate_questions(text, is_pdf=True)
-                st.session_state.submitted = False
-                st.rerun()
+    st.subheader("📄 PDF Data Extractor")
+    file = st.file_uploader("Upload NCERT PDF", type="pdf")
+    if file:
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("📝 Generate MCQ Test", use_container_width=True):
+                text = extract_text_from_pdf(file)
+                st.session_state.quiz = generate_questions(text)
+                st.session_state.submitted = False
+                st.rerun()
+        with c2:
+            if st.button("📊 Create Data Table", use_container_width=True):
+                text = extract_text_from_pdf(file)
+                res = client.models.generate_content(model=MODEL_ID, contents=f"Extract all numerical values, partial pressures, or scientist names from this text into a Markdown table: {text[:8000]}")
+                st.session_state.data_table = res.text
+                st.rerun()
 
-    with col2:
-        if file and st.button("📊 Create Data Table", key="btn_pdf_table"):
-            with st.spinner("Finding data points and building table..."):
-                text = extract_text_from_pdf(file)
-                
-                # Specialized Table Prompt
-                table_prompt = f"""
-                Extract all numerical data, comparisons, or classifications from this text: {text[:8000]}
-                Organize it into a Markdown Table suitable for NEET revision.
-                Focus on: Values, Units, Scientists, or Comparative features.
-                If it's Biology, look for Partial Pressures, Volumes (TV, IRV), or Examples.
-                """
-                
-                response = client.models.generate_content(model=MODEL_ID, contents=table_prompt)
-                
-                st.session_state.data_table = response.text
-                st.rerun()
-
-    # Display the table if it exists in session state
-    if 'data_table' in st.session_state:
-        st.divider()
-        st.success("✅ High-Yield Data Table Extracted")
-        st.markdown(st.session_state.data_table)
-        
-        if st.button("🗑️ Clear Table"):
-            del st.session_state.data_table
-            st.rerun()
+    if 'data_table' in st.session_state:
+        st.success("✅ High-Yield Data Table")
+        st.markdown(st.session_state.data_table)
+        if st.button("🗑️ Clear Table"): del st.session_state.data_table; st.rerun()
 
 with tab3:
-    st.subheader("📸 NCERT Lens")
-    
-    # Use a session state variable to toggle the camera
-    if 'camera_active' not in st.session_state:
-        st.session_state.camera_active = False
+    st.subheader("📸 NCERT Lens")
+    cam_on = st.toggle("Activate Camera Scanner", value=st.session_state.camera_active)
+    st.session_state.camera_active = cam_on
+    
+    if st.session_state.camera_active:
+        img_file = st.camera_input("Scan Diagram")
+        if img_file:
+            with st.spinner("AI Analysis..."):
+                img_bytes = img_file.getvalue()
+                response = client.models.generate_content(
+                    model=MODEL_ID, 
+                    contents=["Identify this NCERT diagram and give 3 NEET tips.", types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg")]
+                )
+                st.markdown("### 🧬 AI Analysis")
+                st.info(response.text)
+                
 
-    if not st.session_state.camera_active:
-        st.info("Click the button below to activate your camera and scan NCERT diagrams.")
-        if st.button("🔌 Activate Camera"):
-            st.session_state.camera_active = True
-            st.rerun()
-    else:
-        if st.button("❌ Close Camera"):
-            st.session_state.camera_active = False
-            st.rerun()
-            
-        img_file = st.camera_input("Position the diagram within the frame")
-        
-        if img_file:
-            with st.spinner("Analyzing diagram..."):
-                img_bytes = img_file.getvalue()
-                img_prompt = "Identify this NCERT diagram and explain 3 high-yield points for NEET 2026."
-                
-                # Image processing
-                response = client.models.generate_content(
-                    model=MODEL_ID, 
-                    contents=[
-                        img_prompt, 
-                        types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg")
-                    ]
-                )
-                
-                st.markdown("### 🧬 AI Analysis")
-                st.info(response.text)
-                
-                if st.button("Create Quiz from Scan"):
-                    st.session_state.quiz = generate_questions(response.text, is_pdf=True)
-                    st.session_state.user_answers, st.session_state.submitted, st.session_state.chat_history = {}, False, []
-                    st.session_state.camera_active = False # Close camera after generating quiz
-                    st.rerun()
+[Image of the human respiratory system diagram with labels for alveoli and bronchioles]
+
 
 # 5. DISPLAY & SCORING
 if st.session_state.quiz:
-    if not st.session_state.submitted:
-        st.info(f"📝 Test in Progress: {len(st.session_state.quiz)} Questions")
-        for i, q in enumerate(st.session_state.quiz):
-            st.markdown(f"#### Q{i+1}: {q['question']}")
-            st.session_state.user_answers[i] = st.radio(f"Select for Q{i+1}:", ["Not Attempted"] + q['options'], key=f"q_{i}")
-        if st.button("🚀 SUBMIT FINAL TEST"):
-            st.session_state.submitted = True
-            st.rerun()
-    else:
-        # 1. Scoring Logic & Data Preparation for Report Card
-        correct_count = 0
-        wrong_count = 0
-        skipped_count = 0
-        report_data = []
+    st.divider()
+    if not st.session_state.submitted:
+        st.subheader("📝 Live Test")
+        for i, q in enumerate(st.session_state.quiz):
+            st.markdown(f"**Q{i+1}: {q['question']}**")
+            st.session_state.user_answers[i] = st.radio(f"Options for Q{i+1}:", ["Not Attempted"] + q['options'], key=f"ans_{i}")
+        
+        if st.button("🚀 SUBMIT FINAL TEST"):
+            st.session_state.submitted = True
+            st.rerun()
+    else:
+        # Scoring and Report logic
+        correct = sum(1 for i, q in enumerate(st.session_state.quiz) if st.session_state.user_answers.get(i) == q['answer'])
+        wrong = sum(1 for i, q in enumerate(st.session_state.quiz) if st.session_state.user_answers.get(i) not in [q['answer'], "Not Attempted"])
+        
+        st.header(f"📊 Results: {(correct*4) - (wrong)} Marks")
+        st.metric("Accuracy", f"{(correct/len(st.session_state.quiz))*100:.1f}%")
+        
+        # Report Card Table
+        report = []
+        for i, q in enumerate(st.session_state.quiz):
+            u = st.session_state.user_answers.get(i)
+            report.append({"Q": i+1, "Your Ans": u, "Correct": q['answer'], "Result": "✅" if u == q['answer'] else "❌"})
+        st.table(report)
 
-        for i, q in enumerate(st.session_state.quiz):
-            c_ans = q.get('answer') or q.get('correct_answer') or q.get('correct')
-            u_ans = st.session_state.user_answers.get(i)
-            
-            if u_ans == c_ans:
-                correct_count += 1
-                result_status = "✅ Correct"
-            elif u_ans == "Not Attempted":
-                skipped_count += 1
-                result_status = "⚠️ Skipped"
-            else:
-                wrong_count += 1
-                result_status = "❌ Incorrect"
-            
-            # Store data for the Summary Table
-            report_data.append({
-                "Q.No": i + 1,
-                "Your Choice": u_ans,
-                "Correct Answer": c_ans,
-                "Status": result_status
-            })
-        
-        score = (correct_count * 4) - (wrong_count * 1)
-        accuracy = (correct_count / len(st.session_state.quiz)) * 100
-        
-        # 2. Display Metrics
-        st.header(f"📊 Results: {score} Marks")
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Score", score)
-        c2.metric("Accuracy", f"{accuracy:.1f}%")
-        c3.metric("Correct ✅", correct_count)
-        c4.metric("Wrong ❌", wrong_count)
-        st.progress(accuracy / 100)
-        
-        # 3. NEW FEATURE: The Quick-View Report Card
-        st.divider()
-        st.subheader("📋 Performance Report Card")
-        st.write("Review your selections against the correct NCERT keys at a glance:")
-        st.table(report_data) 
-        
-        # 4. Detailed Question-by-Question Review (Explanations)
-        st.divider()
-        st.subheader("📝 Detailed NCERT Analysis")
-
-        for i, q in enumerate(st.session_state.quiz):
-            u_ans = st.session_state.user_answers.get(i)
-            c_ans = q.get('answer') or q.get('correct_answer') or q.get('correct')
-            
-            status_icon = "✅" if u_ans == c_ans else ("⚠️" if u_ans == "Not Attempted" else "❌")
-            
-            with st.expander(f"{status_icon} View Explanation for Q{i+1}"):
-                st.write(f"**{q['question']}**")
-                st.info(f"📖 **NCERT Explanation:** {q.get('explanation', 'Refer to NCERT for deeper understanding.')}")
-
-        # 5. Doubt-Buster Chat
-        st.divider()
-        st.subheader("💬 Doubt-Buster Chat")
-        for msg in st.session_state.chat_history:
-            with st.chat_message(msg["role"]): st.markdown(msg["content"])
-        
-        if prompt := st.chat_input("Ask a follow-up doubt..."):
-            st.session_state.chat_history.append({"role": "user", "content": prompt})
-            with st.chat_message("user"): st.markdown(prompt)
-            with st.chat_message("assistant"):
-                try:
-                    res = client.models.generate_content(model=MODEL_ID, contents=f"Quiz context: {str(st.session_state.quiz)}. Question: {prompt}")
-                    st.markdown(res.text)
-                    st.session_state.chat_history.append({"role": "assistant", "content": res.text})
-                except: st.error("⏳ Server busy.")
-        
-        if st.button("🔄 New Test"):
-            st.session_state.quiz = None
-            st.session_state.submitted = False
-            st.session_state.chat_history = []
-            st.rerun()
+        with st.expander("📖 View Detailed NCERT Explanations"):
+            for i, q in enumerate(st.session_state.quiz):
+                st.write(f"**Q{i+1} Explanation:** {q['explanation']}")
+        
+        if st.button("🔄 New Test"):
+            st.session_state.quiz = None
+            st.session_state.submitted = False
+            st.rerun()
