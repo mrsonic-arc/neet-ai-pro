@@ -14,12 +14,12 @@ try:
 except Exception:
     st.error("🔑 API Key Missing! Set 'GEMINI_KEY' in Streamlit Secrets.")
 
-MODEL_ID = "gemini-3-flash-preview"
+MODEL_ID = "gemini-2.0-flash" 
 
 # 2. HELPER FUNCTIONS
 def extract_text_from_pdf(pdf_file):
     reader = PdfReader(pdf_file)
-    return "".join([page.extract_text() for page in reader.pages])
+    return "".join([page.extract_text() for page in reader.pages if page.extract_text()])
 
 def generate_questions(content, is_pdf=False):
     try:
@@ -27,7 +27,7 @@ def generate_questions(content, is_pdf=False):
         prompt = f"""
         Act as a Senior NTA NEET Paper Setter. Using the provided NCERT CONTENT, generate 10 High-Yield MCQs.
         Follow NEET 2021-2025 patterns. Include Standard, A-R, and Statement-based questions.
-        RETURN ONLY A JSON LIST with keys: "type", "question", "options", "answer", "explanation".
+        RETURN ONLY A JSON LIST with keys: "question", "options", "answer", "explanation".
         CONTENT: {content[:8000]}
         """
         response = client.models.generate_content(
@@ -37,13 +37,8 @@ def generate_questions(content, is_pdf=False):
         )
         return json.loads(response.text)
     except Exception as e:
-        if "429" in str(e) or "quota" in str(e).lower():
-            st.error("⏳ **Server Synchronization in Progress**")
-            st.info("To ensure accuracy, our engine is calibrating. Please wait 60 seconds.")
-            st.stop()
-        else:
-            st.error("🩺 **System Maintenance Required**")
-            st.stop()
+        st.error("⏳ Server busy or quota reached. Please wait a moment.")
+        st.stop()
 
 # 3. STATE MANAGEMENT
 if 'quiz' not in st.session_state: st.session_state.quiz = None
@@ -74,13 +69,10 @@ with tab2:
 
 with tab3:
     st.subheader("📸 NCERT Lens")
-    
-    # Use a session state variable to toggle the camera
     if 'camera_active' not in st.session_state:
         st.session_state.camera_active = False
 
     if not st.session_state.camera_active:
-        st.info("Click the button below to activate your camera and scan NCERT diagrams.")
         if st.button("🔌 Activate Camera"):
             st.session_state.camera_active = True
             st.rerun()
@@ -88,30 +80,18 @@ with tab3:
         if st.button("❌ Close Camera"):
             st.session_state.camera_active = False
             st.rerun()
-            
-        img_file = st.camera_input("Position the diagram within the frame")
-        
+        img_file = st.camera_input("Scan Diagram")
         if img_file:
             with st.spinner("Analyzing diagram..."):
                 img_bytes = img_file.getvalue()
-                img_prompt = "Identify this NCERT diagram and explain 3 high-yield points for NEET 2026."
-                
-                # Image processing
                 response = client.models.generate_content(
                     model=MODEL_ID, 
-                    contents=[
-                        img_prompt, 
-                        types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg")
-                    ]
+                    contents=["Identify this NCERT diagram and explain 3 points.", types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg")]
                 )
-                
-                st.markdown("### 🧬 AI Analysis")
                 st.info(response.text)
-                
                 if st.button("Create Quiz from Scan"):
                     st.session_state.quiz = generate_questions(response.text, is_pdf=True)
-                    st.session_state.user_answers, st.session_state.submitted, st.session_state.chat_history = {}, False, []
-                    st.session_state.camera_active = False # Close camera after generating quiz
+                    st.session_state.user_answers, st.session_state.submitted = {}, False
                     st.rerun()
 
 # 5. DISPLAY & SCORING
@@ -126,62 +106,36 @@ if st.session_state.quiz:
             st.session_state.submitted = True
             st.rerun()
     else:
-        # Scoring Logic
+        # Scoring
         correct_count = 0
         wrong_count = 0
         for i, q in enumerate(st.session_state.quiz):
-            c_ans = q.get('answer') or q.get('correct_answer') or q.get('correct')
+            c_ans = q.get('answer') or q.get('correct')
             u_ans = st.session_state.user_answers.get(i)
             if u_ans == c_ans: correct_count += 1
             elif u_ans != "Not Attempted": wrong_count += 1
         
         score = (correct_count * 4) - (wrong_count * 1)
-        accuracy = (correct_count / len(st.session_state.quiz)) * 100
-        
         st.header(f"📊 Results: {score} Marks")
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Score", score)
-        c2.metric("Accuracy", f"{accuracy:.1f}%")
-        c3.metric("Correct ✅", correct_count)
-        c4.metric("Wrong ❌", wrong_count)
-        
-        st.divider()
-        st.subheader("📝 Detailed Question Review")
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Correct ✅", correct_count)
+        c2.metric("Wrong ❌", wrong_count)
+        c3.metric("Accuracy", f"{(correct_count/len(st.session_state.quiz))*100:.1f}%")
 
+        st.divider()
+        st.subheader("📝 Detailed Review")
         for i, q in enumerate(st.session_state.quiz):
-            c_ans = q.get('answer') or q.get('correct_answer') or q.get('correct')
+            c_ans = q.get('answer') or q.get('correct')
             u_ans = st.session_state.user_answers.get(i)
             
-            # Determine Header and Color
-            if u_ans == c_ans:
-                header = f"✅ Q{i+1}: Correct"
-                box_type = st.success
-            elif u_ans == "Not Attempted":
-                header = f"⚠️ Q{i+1}: Skipped"
-                box_type = st.warning
-            else:
-                header = f"❌ Q{i+1}: Incorrect"
-                box_type = st.error
-
-            with st.expander(header):
+            status = "✅ Correct" if u_ans == c_ans else ("⚠️ Skipped" if u_ans == "Not Attempted" else "❌ Incorrect")
+            
+            with st.expander(f"{status} - View Q{i+1}"):
                 st.write(f"**Question:** {q['question']}")
                 st.write(f"**Your Answer:** {u_ans}")
                 st.write(f"**Correct Answer:** {c_ans}")
-                st.info(f"💡 **NCERT Explanation:** {q.get('explanation', 'Refer to NCERT for details.')}")
-                
-                # Contextual Diagram Trigger for Review
-                if any(word in q['question'].lower() for word in ["heart", "cardiac", "valve"]):
-                    
+                st.info(f"💡 **NCERT Explanation:** {q.get('explanation', 'Check NCERT text for this topic.')}")
 
-[Image of the human heart]
-
-                elif any(word in q['question'].lower() for word in ["lung", "respiration", "alveoli"]):
-                    
-
-[Image of the human respiratory system diagram with labels for alveoli and bronchioles]
-
-
-        # Doubt-Buster Chat
         st.divider()
         st.subheader("💬 Doubt-Buster Chat")
         for msg in st.session_state.chat_history:
@@ -191,11 +145,9 @@ if st.session_state.quiz:
             st.session_state.chat_history.append({"role": "user", "content": prompt})
             with st.chat_message("user"): st.markdown(prompt)
             with st.chat_message("assistant"):
-                try:
-                    res = client.models.generate_content(model=MODEL_ID, contents=f"Quiz context: {str(st.session_state.quiz)}. Question: {prompt}")
-                    st.markdown(res.text)
-                    st.session_state.chat_history.append({"role": "assistant", "content": res.text})
-                except: st.error("⏳ Server busy.")
+                res = client.models.generate_content(model=MODEL_ID, contents=f"Context: {str(st.session_state.quiz)}. Query: {prompt}")
+                st.markdown(res.text)
+                st.session_state.chat_history.append({"role": "assistant", "content": res.text})
 
         if st.button("🔄 New Test"):
             st.session_state.quiz = None
