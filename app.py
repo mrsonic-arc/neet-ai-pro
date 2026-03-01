@@ -116,6 +116,7 @@ with tab3:
 
 # 5. DISPLAY & SCORING
 if st.session_state.quiz:
+    st.divider()
     if not st.session_state.submitted:
         st.info(f"📝 Test in Progress: {len(st.session_state.quiz)} Questions")
         for i, q in enumerate(st.session_state.quiz):
@@ -125,16 +126,14 @@ if st.session_state.quiz:
             st.session_state.submitted = True
             st.rerun()
     else:
-        # Scoring
+        # Scoring Logic
         correct_count = 0
         wrong_count = 0
-        skipped_count = 0
         for i, q in enumerate(st.session_state.quiz):
             c_ans = q.get('answer') or q.get('correct_answer') or q.get('correct')
             u_ans = st.session_state.user_answers.get(i)
             if u_ans == c_ans: correct_count += 1
-            elif u_ans == "Not Attempted": skipped_count += 1
-            else: wrong_count += 1
+            elif u_ans != "Not Attempted": wrong_count += 1
         
         score = (correct_count * 4) - (wrong_count * 1)
         accuracy = (correct_count / len(st.session_state.quiz)) * 100
@@ -146,19 +145,43 @@ if st.session_state.quiz:
         c3.metric("Correct ✅", correct_count)
         c4.metric("Wrong ❌", wrong_count)
         
-        st.progress(accuracy / 100)
-        
         st.divider()
-        for i, q in enumerate(st.session_state.quiz):
-            with st.expander(f"Review Q{i+1}"):
-                c_ans = q.get('answer') or q.get('correct_answer') or q.get('correct')
-                u_ans = st.session_state.user_answers.get(i)
-                if u_ans == c_ans: st.success("Correct!")
-                elif u_ans == "Not Attempted": st.warning("Skipped")
-                else: st.error("Incorrect")
-                st.write(f"**Correct:** {c_ans}")
-                st.info(f"**NCERT:** {q.get('explanation', 'Refer to NCERT.')}")
+        st.subheader("📝 Detailed Question Review")
 
+        for i, q in enumerate(st.session_state.quiz):
+            c_ans = q.get('answer') or q.get('correct_answer') or q.get('correct')
+            u_ans = st.session_state.user_answers.get(i)
+            
+            # Determine Header and Color
+            if u_ans == c_ans:
+                header = f"✅ Q{i+1}: Correct"
+                box_type = st.success
+            elif u_ans == "Not Attempted":
+                header = f"⚠️ Q{i+1}: Skipped"
+                box_type = st.warning
+            else:
+                header = f"❌ Q{i+1}: Incorrect"
+                box_type = st.error
+
+            with st.expander(header):
+                st.write(f"**Question:** {q['question']}")
+                st.write(f"**Your Answer:** {u_ans}")
+                st.write(f"**Correct Answer:** {c_ans}")
+                st.info(f"💡 **NCERT Explanation:** {q.get('explanation', 'Refer to NCERT for details.')}")
+                
+                # Contextual Diagram Trigger for Review
+                if any(word in q['question'].lower() for word in ["heart", "cardiac", "valve"]):
+                    
+
+[Image of the human heart]
+
+                elif any(word in q['question'].lower() for word in ["lung", "respiration", "alveoli"]):
+                    
+
+[Image of the human respiratory system diagram with labels for alveoli and bronchioles]
+
+
+        # Doubt-Buster Chat
         st.divider()
         st.subheader("💬 Doubt-Buster Chat")
         for msg in st.session_state.chat_history:
