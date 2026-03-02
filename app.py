@@ -9,6 +9,312 @@ import datetime
 # 1. SETUP & CONFIG
 st.set_page_config(page_title="NEET AI Master 2026", page_icon="🩺", layout="wide")
 
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap');
+
+:root {
+  --bg:      #080c14;
+  --surface: #0e1420;
+  --card:    #121a28;
+  --border:  #1e2d45;
+  --accent:  #00d4ff;
+  --accent2: #7b5ea7;
+  --accent3: #00ff9d;
+  --danger:  #ff4d6d;
+  --warn:    #ffb347;
+  --text:    #e8edf5;
+  --muted:   #7a8ba0;
+  --glow:    0 0 24px rgba(0,212,255,0.25);
+}
+
+html, body, .stApp {
+  background: var(--bg) !important;
+  font-family: 'DM Sans', sans-serif !important;
+  color: var(--text) !important;
+}
+.stApp::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 80% 50% at 20% 10%, rgba(0,212,255,0.06) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 40% at 80% 80%, rgba(123,94,167,0.08) 0%, transparent 60%),
+    radial-gradient(ellipse 40% 30% at 60% 40%, rgba(0,255,157,0.04) 0%, transparent 50%);
+  pointer-events: none;
+  z-index: 0;
+}
+#MainMenu, footer, header { visibility: hidden !important; }
+.stDeployButton { display: none !important; }
+[data-testid="stToolbar"] { display: none !important; }
+
+h1 {
+  font-family: 'Syne', sans-serif !important;
+  font-weight: 800 !important;
+  font-size: 2.8rem !important;
+  background: linear-gradient(135deg, #00d4ff 0%, #7b5ea7 50%, #00ff9d 100%) !important;
+  -webkit-background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+  background-clip: text !important;
+  letter-spacing: -0.03em !important;
+}
+h2, h3 {
+  font-family: 'Syne', sans-serif !important;
+  font-weight: 700 !important;
+  color: var(--text) !important;
+  letter-spacing: -0.02em !important;
+}
+h4 { font-family: 'DM Sans', sans-serif !important; font-weight: 500 !important; color: #c5d0df !important; }
+h2::after {
+  content: '';
+  display: block;
+  width: 40px;
+  height: 3px;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  border-radius: 4px;
+  margin-top: 6px;
+}
+
+/* TABS */
+[data-testid="stTabs"] [role="tablist"] {
+  background: var(--surface) !important;
+  border-radius: 14px !important;
+  padding: 5px !important;
+  border: 1px solid var(--border) !important;
+  gap: 4px !important;
+}
+[data-testid="stTabs"] [role="tab"] {
+  font-family: 'DM Sans', sans-serif !important;
+  font-weight: 500 !important;
+  font-size: 0.85rem !important;
+  color: var(--muted) !important;
+  border-radius: 10px !important;
+  padding: 8px 16px !important;
+  border: none !important;
+  background: transparent !important;
+  transition: all 0.2s ease !important;
+}
+[data-testid="stTabs"] [role="tab"]:hover { color: var(--text) !important; background: rgba(0,212,255,0.07) !important; }
+[data-testid="stTabs"] [role="tab"][aria-selected="true"] {
+  background: linear-gradient(135deg, rgba(0,212,255,0.15), rgba(123,94,167,0.15)) !important;
+  color: var(--accent) !important;
+  border: 1px solid rgba(0,212,255,0.25) !important;
+  box-shadow: var(--glow) !important;
+}
+
+/* BUTTONS */
+.stButton > button {
+  font-family: 'Syne', sans-serif !important;
+  font-weight: 600 !important;
+  font-size: 0.9rem !important;
+  background: linear-gradient(135deg, rgba(0,212,255,0.1), rgba(123,94,167,0.1)) !important;
+  color: var(--accent) !important;
+  border: 1px solid rgba(0,212,255,0.3) !important;
+  border-radius: 10px !important;
+  padding: 10px 22px !important;
+  transition: all 0.25s ease !important;
+  letter-spacing: 0.02em !important;
+}
+.stButton > button:hover {
+  background: linear-gradient(135deg, rgba(0,212,255,0.22), rgba(123,94,167,0.22)) !important;
+  border-color: var(--accent) !important;
+  box-shadow: var(--glow) !important;
+  transform: translateY(-1px) !important;
+  color: #fff !important;
+}
+
+/* INPUTS */
+.stTextInput > div > div > input,
+.stTextArea > div > div > textarea {
+  background: var(--card) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 10px !important;
+  color: var(--text) !important;
+  font-family: 'DM Sans', sans-serif !important;
+  padding: 10px 14px !important;
+  transition: border-color 0.2s ease !important;
+}
+.stTextInput > div > div > input:focus,
+.stTextArea > div > div > textarea:focus {
+  border-color: var(--accent) !important;
+  box-shadow: var(--glow) !important;
+}
+
+/* SELECTBOX */
+.stSelectbox > div > div {
+  background: var(--card) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 10px !important;
+  color: var(--text) !important;
+  font-family: 'DM Sans', sans-serif !important;
+}
+
+/* METRICS */
+[data-testid="stMetric"] {
+  background: var(--card) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 14px !important;
+  padding: 18px 20px !important;
+  position: relative !important;
+  overflow: hidden !important;
+  transition: border-color 0.2s, box-shadow 0.2s !important;
+}
+[data-testid="stMetric"]:hover { border-color: rgba(0,212,255,0.3) !important; box-shadow: var(--glow) !important; }
+[data-testid="stMetric"]::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+}
+[data-testid="stMetricLabel"] {
+  color: var(--muted) !important;
+  font-size: 0.78rem !important;
+  font-weight: 500 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.07em !important;
+}
+[data-testid="stMetricValue"] {
+  font-family: 'Syne', sans-serif !important;
+  font-size: 2rem !important;
+  font-weight: 800 !important;
+  color: var(--accent) !important;
+}
+
+/* EXPANDERS */
+[data-testid="stExpander"] {
+  background: var(--card) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 12px !important;
+  margin-bottom: 8px !important;
+  overflow: hidden !important;
+  transition: border-color 0.2s !important;
+}
+[data-testid="stExpander"]:hover { border-color: rgba(0,212,255,0.25) !important; }
+[data-testid="stExpander"] summary {
+  font-family: 'DM Sans', sans-serif !important;
+  font-weight: 500 !important;
+  color: var(--text) !important;
+  padding: 14px 18px !important;
+  background: transparent !important;
+}
+[data-testid="stExpander"] summary:hover { color: var(--accent) !important; }
+
+/* PROGRESS BAR */
+[data-testid="stProgress"] > div > div > div {
+  background: linear-gradient(90deg, var(--accent), var(--accent2), var(--accent3)) !important;
+  border-radius: 8px !important;
+}
+[data-testid="stProgress"] > div > div {
+  background: var(--border) !important;
+  border-radius: 8px !important;
+  height: 8px !important;
+}
+
+/* RADIO */
+[data-testid="stRadio"] > div { gap: 8px !important; }
+[data-testid="stRadio"] label {
+  background: var(--card) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 10px !important;
+  padding: 10px 16px !important;
+  color: var(--text) !important;
+  font-family: 'DM Sans', sans-serif !important;
+  transition: all 0.2s ease !important;
+  cursor: pointer !important;
+}
+[data-testid="stRadio"] label:hover {
+  border-color: var(--accent) !important;
+  background: rgba(0,212,255,0.06) !important;
+  color: var(--accent) !important;
+}
+
+/* SIDEBAR */
+[data-testid="stSidebar"] {
+  background: var(--surface) !important;
+  border-right: 1px solid var(--border) !important;
+}
+[data-testid="stSidebarContent"] { padding: 20px 16px !important; }
+
+/* DATAFRAME */
+[data-testid="stDataFrame"] {
+  border: 1px solid var(--border) !important;
+  border-radius: 12px !important;
+  overflow: hidden !important;
+}
+
+/* DIVIDER */
+hr { border: none !important; border-top: 1px solid var(--border) !important; margin: 24px 0 !important; }
+
+/* FILE UPLOADER */
+[data-testid="stFileUploader"] {
+  background: var(--card) !important;
+  border: 2px dashed var(--border) !important;
+  border-radius: 14px !important;
+  padding: 20px !important;
+  transition: border-color 0.2s !important;
+}
+[data-testid="stFileUploader"]:hover { border-color: var(--accent) !important; }
+
+/* SLIDER */
+[data-testid="stSlider"] > div > div > div > div {
+  background: linear-gradient(90deg, var(--accent), var(--accent2)) !important;
+}
+
+/* CHAT */
+[data-testid="stChatMessage"] {
+  background: var(--card) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 14px !important;
+  margin-bottom: 8px !important;
+}
+[data-testid="stChatInput"] > div {
+  background: var(--card) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 12px !important;
+}
+[data-testid="stChatInput"] input { color: var(--text) !important; font-family: 'DM Sans', sans-serif !important; }
+
+/* MULTISELECT */
+[data-testid="stMultiSelect"] > div {
+  background: var(--card) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 10px !important;
+}
+[data-baseweb="tag"] {
+  background: rgba(0,212,255,0.15) !important;
+  border: 1px solid rgba(0,212,255,0.3) !important;
+  color: var(--accent) !important;
+  border-radius: 6px !important;
+}
+
+/* DOWNLOAD BUTTON */
+[data-testid="stDownloadButton"] button {
+  background: linear-gradient(135deg, rgba(0,255,157,0.1), rgba(0,212,255,0.1)) !important;
+  color: var(--accent3) !important;
+  border-color: rgba(0,255,157,0.3) !important;
+}
+[data-testid="stDownloadButton"] button:hover {
+  background: linear-gradient(135deg, rgba(0,255,157,0.22), rgba(0,212,255,0.22)) !important;
+  border-color: var(--accent3) !important;
+  box-shadow: 0 0 20px rgba(0,255,157,0.2) !important;
+  color: #fff !important;
+}
+
+/* CAPTIONS */
+small, .stCaption, [data-testid="stCaptionContainer"] {
+  color: var(--muted) !important;
+  font-size: 0.8rem !important;
+}
+
+/* SCROLLBAR */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 6px; }
+::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+</style>
+""", unsafe_allow_html=True)
+
 try:
     API_KEY = st.secrets["GEMINI_KEY"]
     client = genai.Client(api_key=API_KEY)
@@ -297,7 +603,33 @@ with st.sidebar:
             st.rerun()
 
 # 5. MAIN INTERFACE
-st.title("🩺 NEET AI Master 2026")
+st.markdown("""
+<div class="hero-banner" style="
+  background: linear-gradient(135deg, rgba(0,212,255,0.08) 0%, rgba(123,94,167,0.08) 50%, rgba(0,255,157,0.05) 100%);
+  border: 1px solid rgba(0,212,255,0.15);
+  border-radius: 20px;
+  padding: 32px 36px;
+  margin-bottom: 24px;
+  position: relative;
+  overflow: hidden;
+">
+  <div style="position:absolute;right:32px;top:50%;transform:translateY(-50%);font-size:5rem;opacity:0.07;">🩺</div>
+  <h1 style="
+    font-family: Syne, sans-serif;
+    font-weight: 800;
+    font-size: 2.6rem;
+    background: linear-gradient(135deg, #00d4ff 0%, #7b5ea7 50%, #00ff9d 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin: 0;
+    letter-spacing: -0.03em;
+  ">NEET AI Master 2026</h1>
+  <p style="color:#7a8ba0;font-size:1rem;margin:8px 0 0 0;font-family:'DM Sans',sans-serif;">
+    Your AI-powered NEET preparation engine &nbsp;·&nbsp; Smart tests, PYQs, study plans & analytics
+  </p>
+</div>
+""", unsafe_allow_html=True)
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "📖 By Chapter", "📄 By PDF", "📸 NCERT Lens",
     "🎯 PYQ Mode", "🗓️ Study Planner", "📊 Full Analytics"
@@ -696,7 +1028,28 @@ if st.session_state.quiz:
     if not st.session_state.submitted:
         subj_label = st.session_state.current_subject or "Custom"
         topic_label = st.session_state.current_topic or ""
-        st.info(f"📝 Test in Progress: **{SUBJECT_ICONS.get(subj_label, '📘')} {subj_label} — {topic_label}** | {len(st.session_state.quiz)} Questions")
+        st.markdown(f"""
+        <div style="
+          background: linear-gradient(135deg, rgba(0,212,255,0.08), rgba(123,94,167,0.08));
+          border: 1px solid rgba(0,212,255,0.2);
+          border-radius: 14px;
+          padding: 16px 22px;
+          margin-bottom: 20px;
+          display: flex;
+          align-items: center;
+          gap: 12px;
+        ">
+          <span style="font-size:1.6rem;">{SUBJECT_ICONS.get(subj_label,'📘')}</span>
+          <div>
+            <div style="font-family:Syne,sans-serif;font-weight:700;color:#e8edf5;font-size:1.1rem;">
+              {subj_label} — {topic_label}
+            </div>
+            <div style="color:#7a8ba0;font-size:0.85rem;margin-top:2px;">
+              📝 Test in Progress &nbsp;·&nbsp; {len(st.session_state.quiz)} Questions &nbsp;·&nbsp; +4 / −1 Marking
+            </div>
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
         for i, q in enumerate(st.session_state.quiz):
             year_badge = f" `{q.get('year','')}` " if q.get('year') else ""
             diff = q.get('difficulty', '')
