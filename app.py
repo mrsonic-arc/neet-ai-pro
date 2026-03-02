@@ -373,7 +373,11 @@ def generate_datatable(content):
             contents=prompt,
             config=types.GenerateContentConfig(response_mime_type="application/json")
         )
-        return json.loads(response.text)
+        raw = response.text.strip()
+        if raw.startswith('```'):
+            raw = raw.split('```')[1]
+            if raw.startswith('json'): raw = raw[4:]
+        return json.loads(raw.strip())
     except Exception as e:
         if "429" in str(e) or "quota" in str(e).lower():
             st.error("⏳ **Server Synchronization in Progress**")
@@ -387,59 +391,83 @@ def generate_questions(content, subject=None, topic=None, is_pdf=False, custom_i
     try:
         time.sleep(1)
 
-        ar_instruction = """
-        IMPORTANT — Assertion-Reason Question Format:
-        For every Assertion-Reason (A-R) type question, the "question" field MUST contain BOTH lines together like this:
-        "Assertion (A): [full assertion statement here]\\nReason (R): [full reason statement here]"
-        NEVER split Assertion and Reason across separate fields. Both must be in the single "question" string separated by \\n.
-        The options for A-R questions must always be:
-        ["Both A and R are true and R is the correct explanation of A",
-         "Both A and R are true but R is NOT the correct explanation of A",
-         "A is true but R is false",
-         "A is false but R is true"]
-        """
+        ar_instruction = (
+            "IMPORTANT - For Assertion-Reason questions: "
+            "The 'question' field MUST contain both lines like this: "
+            "'Assertion (A): [statement]. Reason (R): [statement]' "
+            "Both Assertion and Reason must be in the single question string. "
+            "Standard A-R options are: "
+            "['Both A and R are true and R is the correct explanation of A', "
+            "'Both A and R are true but R is NOT the correct explanation of A', "
+            "'A is true but R is false', "
+            "'A is false but R is true']"
+        )
 
         if custom_input:
-            prompt = f"""
-            Act as a Senior NTA NEET Paper Setter.
-            Generate 10 High-Yield MCQs strictly on this topic: "{content}".
-            Do NOT deviate to any other chapter or subject. Every question must be directly about: "{content}".
-            Follow NEET 2021-2025 patterns. Include Standard, Assertion-Reason, and Statement-based questions.
-            {ar_instruction}
-            RETURN ONLY A JSON LIST where each item has keys: "type", "question", "options", "answer", "explanation".
-            """
+            prompt = (
+                f"Act as a Senior NTA NEET Paper Setter. "
+                f"Generate 10 High-Yield MCQs strictly on this topic: '{content}'. "
+                f"Every question must be directly about: '{content}'. "
+                f"Follow NEET 2021-2025 patterns. Include Standard, Assertion-Reason, and Statement-based questions. "
+                f"{ar_instruction} "
+                f"RETURN ONLY a valid JSON array. Each element must have these exact keys: "
+                f"type, question, options (array of 4 strings), answer, explanation."
+            )
         elif is_pdf or (subject is None):
-            prompt = f"""
-            Act as a Senior NTA NEET Paper Setter.
-            Using the provided NCERT CONTENT below, generate 10 High-Yield MCQs.
-            Follow NEET 2021-2025 patterns. Include Standard, A-R, and Statement-based questions.
-            {ar_instruction}
-            RETURN ONLY A JSON LIST where each item has keys: "type", "question", "options", "answer", "explanation".
-            CONTENT: {content[:8000]}
-            """
+            prompt = (
+                f"Act as a Senior NTA NEET Paper Setter. "
+                f"Using the NCERT content provided, generate 10 High-Yield MCQs. "
+                f"Follow NEET 2021-2025 patterns. Include Standard, A-R, and Statement-based questions. "
+                f"{ar_instruction} "
+                f"RETURN ONLY a valid JSON array. Each element must have these exact keys: "
+                f"type, question, options (array of 4 strings), answer, explanation. "
+                f"CONTENT: {content[:8000]}"
+            )
         else:
-            prompt = f"""
-            Act as a Senior NTA NEET Paper Setter.
-            Subject: {subject}. Topic: {topic}.
-            Generate 10 High-Yield MCQs strictly on "{topic}" from NCERT {subject}.
-            Do NOT mix in other topics. Every question must be from: {subject} → {topic}.
-            Follow NEET 2021-2025 patterns. Include Standard, A-R, and Statement-based questions.
-            {ar_instruction}
-            RETURN ONLY A JSON LIST where each item has keys: "type", "question", "options", "answer", "explanation".
-            """
+            prompt = (
+                f"Act as a Senior NTA NEET Paper Setter. "
+                f"Subject: {subject}. Topic: {topic}. "
+                f"Generate 10 High-Yield MCQs strictly on '{topic}' from NCERT {subject}. "
+                f"Every question must be from: {subject} - {topic}. "
+                f"Follow NEET 2021-2025 patterns. Include Standard, A-R, and Statement-based questions. "
+                f"{ar_instruction} "
+                f"RETURN ONLY a valid JSON array. Each element must have these exact keys: "
+                f"type, question, options (array of 4 strings), answer, explanation."
+            )
+
         response = client.models.generate_content(
             model=MODEL_ID,
             contents=prompt,
             config=types.GenerateContentConfig(response_mime_type="application/json")
         )
-        return json.loads(response.text)
+
+        raw = response.text.strip()
+        # Strip markdown code fences if present
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        raw = raw.strip()
+
+        questions = json.loads(raw)
+
+        # Validate — ensure it's a list with required keys
+        if not isinstance(questions, list) or len(questions) == 0:
+            st.error("⚠️ AI returned an empty or invalid response. Please try again.")
+            st.stop()
+
+        return questions
+
+    except json.JSONDecodeError as e:
+        st.error(f"⚠️ Could not parse AI response. Please try again. (JSON error: {e})")
+        st.stop()
     except Exception as e:
-        if "429" in str(e) or "quota" in str(e).lower():
-            st.error("⏳ **Server Synchronization in Progress**")
-            st.info("To ensure accuracy, our engine is calibrating. Please wait 60 seconds.")
+        err = str(e)
+        if "429" in err or "quota" in err.lower():
+            st.error("⏳ **API limit reached.** Please wait 60 seconds and try again.")
             st.stop()
         else:
-            st.error("🩺 **System Maintenance Required**")
+            st.error(f"🩺 **Error generating questions:** {err}")
             st.stop()
 
 def generate_pyq(subject, topic, year):
@@ -467,7 +495,11 @@ def generate_pyq(subject, topic, year):
             contents=prompt,
             config=types.GenerateContentConfig(response_mime_type="application/json")
         )
-        return json.loads(response.text)
+        raw = response.text.strip()
+        if raw.startswith('```'):
+            raw = raw.split('```')[1]
+            if raw.startswith('json'): raw = raw[4:]
+        return json.loads(raw.strip())
     except Exception as e:
         if "429" in str(e) or "quota" in str(e).lower():
             st.error("⏳ **Server busy.** Please wait 60 seconds.")
@@ -523,7 +555,11 @@ def generate_study_plan(duration_days, weak_subjects, strong_subjects, target_sc
             contents=prompt,
             config=types.GenerateContentConfig(response_mime_type="application/json")
         )
-        return json.loads(response.text)
+        raw = response.text.strip()
+        if raw.startswith('```'):
+            raw = raw.split('```')[1]
+            if raw.startswith('json'): raw = raw[4:]
+        return json.loads(raw.strip())
     except Exception as e:
         if "429" in str(e) or "quota" in str(e).lower():
             st.error("⏳ **Server busy.** Please wait 60 seconds.")
@@ -547,7 +583,11 @@ def generate_flashcards(content, custom_input=False):
             model=MODEL_ID, contents=prompt,
             config=types.GenerateContentConfig(response_mime_type="application/json")
         )
-        return json.loads(response.text)
+        raw = response.text.strip()
+        if raw.startswith('```'):
+            raw = raw.split('```')[1]
+            if raw.startswith('json'): raw = raw[4:]
+        return json.loads(raw.strip())
     except Exception as e:
         if "429" in str(e) or "quota" in str(e).lower():
             st.error("⏳ Server busy. Please wait 60 seconds."); st.stop()
@@ -580,7 +620,11 @@ def generate_formula_sheet(topic, subject):
             model=MODEL_ID, contents=prompt,
             config=types.GenerateContentConfig(response_mime_type="application/json")
         )
-        return json.loads(response.text)
+        raw = response.text.strip()
+        if raw.startswith('```'):
+            raw = raw.split('```')[1]
+            if raw.startswith('json'): raw = raw[4:]
+        return json.loads(raw.strip())
     except Exception as e:
         if "429" in str(e) or "quota" in str(e).lower():
             st.error("⏳ Server busy. Please wait 60 seconds."); st.stop()
@@ -601,7 +645,11 @@ def generate_daily_challenge():
             model=MODEL_ID, contents=prompt,
             config=types.GenerateContentConfig(response_mime_type="application/json")
         )
-        return json.loads(response.text)
+        raw = response.text.strip()
+        if raw.startswith('```'):
+            raw = raw.split('```')[1]
+            if raw.startswith('json'): raw = raw[4:]
+        return json.loads(raw.strip())
     except Exception as e:
         if "429" in str(e) or "quota" in str(e).lower():
             st.error("⏳ Server busy. Please wait 60 seconds."); st.stop()
