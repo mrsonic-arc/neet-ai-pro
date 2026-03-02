@@ -36,6 +36,36 @@ def extract_text_from_pdf(pdf_file):
     reader = PdfReader(pdf_file)
     return "".join([page.extract_text() for page in reader.pages])
 
+def generate_datatable(content):
+    try:
+        time.sleep(1)
+        prompt = f"""
+        Act as a NEET NCERT Expert. From the provided NCERT content, extract all important facts, 
+        concepts, values, and data points that are commonly asked in NEET exams.
+        Organize them into a structured table.
+        RETURN ONLY A JSON object with:
+        - "title": a short title for the table (e.g. "Hormones and Functions")
+        - "columns": list of column header names (3-5 columns max)
+        - "rows": list of rows, each row is a list of cell values matching the columns order
+        Make sure every row has the same number of cells as there are columns.
+        Extract at least 10 rows of data. Focus on NEET-relevant facts only.
+        CONTENT: {content[:8000]}
+        """
+        response = client.models.generate_content(
+            model=MODEL_ID,
+            contents=prompt,
+            config=types.GenerateContentConfig(response_mime_type="application/json")
+        )
+        return json.loads(response.text)
+    except Exception as e:
+        if "429" in str(e) or "quota" in str(e).lower():
+            st.error("⏳ **Server Synchronization in Progress**")
+            st.info("Please wait 60 seconds and try again.")
+            st.stop()
+        else:
+            st.error(f"🩺 **Could not generate table:** {str(e)}")
+            st.stop()
+
 def generate_questions(content, subject=None, topic=None, is_pdf=False):
     try:
         time.sleep(1)
@@ -104,6 +134,8 @@ defaults = {
     "current_subject": None,
     "current_topic": None,
     "camera_active": False,
+    "datatable": None,
+    "pdf_text_cache": None,
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -198,14 +230,87 @@ with tab2:
         pdf_topic = st.text_input("Tag Topic (optional):", key="pdf_topic_input")
 
     file = st.file_uploader("Upload NCERT PDF", type="pdf")
-    if file and st.button("Analyze PDF", key="btn_pdf"):
-        with st.spinner("Reading PDF..."):
-            text = extract_text_from_pdf(file)
-            st.session_state.quiz = generate_questions(text, is_pdf=True)
-            st.session_state.current_subject = None if pdf_subject == "— Untagged —" else pdf_subject
-            st.session_state.current_topic = pdf_topic or "PDF Upload"
-            st.session_state.user_answers, st.session_state.submitted, st.session_state.chat_history = {}, False, []
-            st.rerun()
+
+    if file:
+        st.markdown("#### 🛠️ What would you like to generate?")
+        gen_col1, gen_col2 = st.columns(2)
+
+        with gen_col1:
+            if st.button("📝 Generate MCQ Test", key="btn_pdf", use_container_width=True):
+                with st.spinner("Reading PDF & crafting questions..."):
+                    text = extract_text_from_pdf(file)
+                    st.session_state.pdf_text_cache = text
+                    st.session_state.datatable = None
+                    st.session_state.quiz = generate_questions(text, is_pdf=True)
+                    st.session_state.current_subject = None if pdf_subject == "— Untagged —" else pdf_subject
+                    st.session_state.current_topic = pdf_topic or "PDF Upload"
+                    st.session_state.user_answers, st.session_state.submitted, st.session_state.chat_history = {}, False, []
+                    st.rerun()
+
+        with gen_col2:
+            if st.button("📊 Generate Data Table", key="btn_datatable", use_container_width=True):
+                with st.spinner("Extracting key facts & building table..."):
+                    text = extract_text_from_pdf(file)
+                    st.session_state.pdf_text_cache = text
+                    st.session_state.datatable = generate_datatable(text)
+                    st.rerun()
+
+    # --- Display Data Table if generated ---
+    if st.session_state.datatable:
+        dt = st.session_state.datatable
+        st.markdown(f"### 📋 {dt.get('title', 'Extracted Data Table')}")
+        st.caption("All high-yield NEET facts extracted from your PDF")
+
+        columns = dt.get("columns", [])
+        rows = dt.get("rows", [])
+
+        if columns and rows:
+            import pandas as pd
+            # Sanitize rows: ensure each row matches column count
+            clean_rows = []
+            for row in rows:
+                if len(row) < len(columns):
+                    row = row + ["—"] * (len(columns) - len(row))
+                elif len(row) > len(columns):
+                    row = row[:len(columns)]
+                clean_rows.append(row)
+
+            df = pd.DataFrame(clean_rows, columns=columns)
+            df.index += 1  # Start index from 1
+
+            # Search filter
+            search = st.text_input("🔍 Search table:", placeholder="Type to filter rows...")
+            if search:
+                mask = df.apply(lambda col: col.astype(str).str.contains(search, case=False, na=False)).any(axis=1)
+                filtered_df = df[mask]
+                st.caption(f"Showing {len(filtered_df)} of {len(df)} rows")
+            else:
+                filtered_df = df
+
+            st.dataframe(filtered_df, use_container_width=True, height=450)
+
+            # Download as CSV
+            csv = df.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                label="⬇️ Download Table as CSV",
+                data=csv,
+                file_name=f"neet_datatable_{dt.get('title', 'data').replace(' ', '_').lower()}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+
+            st.divider()
+            # Also offer to generate quiz from the same PDF
+            if st.session_state.pdf_text_cache:
+                if st.button("📝 Also Generate MCQ Test from this PDF", use_container_width=True):
+                    with st.spinner("Crafting questions from same PDF..."):
+                        st.session_state.quiz = generate_questions(st.session_state.pdf_text_cache, is_pdf=True)
+                        st.session_state.current_subject = None if pdf_subject == "— Untagged —" else pdf_subject
+                        st.session_state.current_topic = pdf_topic or "PDF Upload"
+                        st.session_state.user_answers, st.session_state.submitted, st.session_state.chat_history = {}, False, []
+                        st.rerun()
+        else:
+            st.warning("⚠️ Could not extract structured data from this PDF. Try a more content-rich NCERT chapter.")
 
 # --- TAB 3: NCERT Lens ---
 with tab3:
