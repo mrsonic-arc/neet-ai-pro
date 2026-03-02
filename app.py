@@ -492,15 +492,48 @@ if st.session_state.quiz:
             st.error(f"🔴 Needs improvement. Focus on NCERT {subj} thoroughly.")
 
         st.divider()
+        st.markdown("### 📋 Detailed Question Review")
         for i, q in enumerate(st.session_state.quiz):
-            with st.expander(f"Review Q{i+1}"):
-                c_ans = q.get('answer') or q.get('correct_answer') or q.get('correct')
-                u_ans = st.session_state.user_answers.get(i)
-                if u_ans == c_ans: st.success("Correct!")
-                elif u_ans == "Not Attempted": st.warning("Skipped")
-                else: st.error("Incorrect")
-                st.write(f"**Correct:** {c_ans}")
-                st.info(f"**NCERT:** {q.get('explanation', 'Refer to NCERT.')}")
+            c_ans = q.get('answer') or q.get('correct_answer') or q.get('correct')
+            u_ans = st.session_state.user_answers.get(i)
+
+            if u_ans == c_ans:
+                status_icon = "✅"
+                status_label = "Correct"
+            elif u_ans == "Not Attempted":
+                status_icon = "⏭️"
+                status_label = "Skipped"
+            else:
+                status_icon = "❌"
+                status_label = "Incorrect"
+
+            with st.expander(f"{status_icon} Q{i+1}: {q['question'][:80]}{'...' if len(q['question']) > 80 else ''}  —  {status_label}"):
+                # Full question
+                st.markdown(f"**📌 Question:**")
+                st.markdown(f"> {q['question']}")
+
+                st.markdown("**🔘 All Options:**")
+                for opt in q.get('options', []):
+                    if opt == c_ans and opt == u_ans:
+                        st.markdown(f"- ✅ **{opt}** ← Your answer (Correct)")
+                    elif opt == c_ans:
+                        st.markdown(f"- ✅ **{opt}** ← Correct answer")
+                    elif opt == u_ans:
+                        st.markdown(f"- ❌ ~~{opt}~~ ← Your answer (Wrong)")
+                    else:
+                        st.markdown(f"- {opt}")
+
+                st.divider()
+                if u_ans == "Not Attempted":
+                    st.warning("⏭️ You skipped this question.")
+                    st.markdown(f"**✅ Correct Answer:** `{c_ans}`")
+                elif u_ans == c_ans:
+                    st.success(f"✅ You answered correctly: `{c_ans}`")
+                else:
+                    st.error(f"❌ Your Answer: `{u_ans}`")
+                    st.success(f"✅ Correct Answer: `{c_ans}`")
+
+                st.info(f"📖 **NCERT Explanation:** {q.get('explanation', 'Refer to NCERT.')}")
 
         st.divider()
         st.subheader("💬 Doubt-Buster Chat")
