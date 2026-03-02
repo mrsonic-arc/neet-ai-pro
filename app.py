@@ -103,6 +103,96 @@ def generate_questions(content, subject=None, topic=None, is_pdf=False):
             st.error("🩺 **System Maintenance Required**")
             st.stop()
 
+def generate_pyq(subject, topic, year):
+    try:
+        time.sleep(1)
+        year_context = f"from NEET {year}" if year != "All Years (2020–2024)" else "from NEET exams between 2020 and 2024"
+        prompt = f"""
+        Act as a Senior NTA NEET Paper Setter with access to previous year question papers.
+        Generate 10 MCQs that are styled and patterned EXACTLY like real NEET Previous Year Questions 
+        {year_context} for the topic: {subject} - {topic}.
+        
+        Each question must:
+        - Feel like a real PYQ (precise, factual, single best answer)
+        - Include the approximate year it was asked or could have been asked
+        - Cover different difficulty levels (easy, medium, hard)
+        - Include Assertion-Reason and Statement types where appropriate
+        
+        RETURN ONLY A JSON LIST with keys:
+        "type", "question", "options", "answer", "explanation", "year", "difficulty"
+        Where "difficulty" is one of: "Easy", "Medium", "Hard"
+        And "year" is the NEET exam year (e.g. "NEET 2022" or "NEET Pattern")
+        """
+        response = client.models.generate_content(
+            model=MODEL_ID,
+            contents=prompt,
+            config=types.GenerateContentConfig(response_mime_type="application/json")
+        )
+        return json.loads(response.text)
+    except Exception as e:
+        if "429" in str(e) or "quota" in str(e).lower():
+            st.error("⏳ **Server busy.** Please wait 60 seconds.")
+            st.stop()
+        else:
+            st.error("🩺 **Could not generate PYQs.**")
+            st.stop()
+
+def generate_study_plan(duration_days, weak_subjects, strong_subjects, target_score, hours_per_day):
+    try:
+        time.sleep(1)
+        prompt = f"""
+        You are an expert NEET counselor and study strategist. Create a highly personalized, 
+        actionable NEET 2026 study plan.
+
+        Student Profile:
+        - Study Duration: {duration_days} days
+        - Daily Study Time: {hours_per_day} hours/day
+        - Weak Subjects: {', '.join(weak_subjects) if weak_subjects else 'None specified'}
+        - Strong Subjects: {', '.join(strong_subjects) if strong_subjects else 'None specified'}
+        - Target NEET Score: {target_score}
+
+        Generate a structured plan. RETURN ONLY A JSON object with:
+        {{
+          "overview": "2-3 sentence motivational summary of the plan",
+          "strategy": "2-3 sentence core strategy based on weak/strong areas",
+          "weekly_breakdown": [
+            {{
+              "week_range": "Week 1-2 (or similar range)",
+              "theme": "Phase name e.g. Foundation Building",
+              "focus": ["Subject - Topic", ...],
+              "daily_targets": "Brief daily target description",
+              "revision": "Revision strategy for this phase"
+            }}
+          ],
+          "subject_hours": {{
+            "Physics": number,
+            "Chemistry": number,
+            "Biology (Botany)": number,
+            "Biology (Zoology)": number
+          }},
+          "daily_schedule": [
+            {{"time": "e.g. 6:00 AM - 7:30 AM", "activity": "description"}}
+          ],
+          "milestones": [
+            {{"day": number, "goal": "measurable goal"}}
+          ],
+          "tips": ["tip1", "tip2", "tip3", "tip4", "tip5"]
+        }}
+        """
+        response = client.models.generate_content(
+            model=MODEL_ID,
+            contents=prompt,
+            config=types.GenerateContentConfig(response_mime_type="application/json")
+        )
+        return json.loads(response.text)
+    except Exception as e:
+        if "429" in str(e) or "quota" in str(e).lower():
+            st.error("⏳ **Server busy.** Please wait 60 seconds.")
+            st.stop()
+        else:
+            st.error("🩺 **Could not generate study plan.**")
+            st.stop()
+
 def save_attempt(subject, topic, score, accuracy, correct, wrong, skipped, total):
     """Save a test attempt to session history."""
     attempt = {
@@ -147,6 +237,8 @@ defaults = {
     "camera_active": False,
     "datatable": None,
     "pdf_text_cache": None,
+    "study_plan": None,
+    "pyq_questions": None,
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -206,7 +298,10 @@ with st.sidebar:
 
 # 5. MAIN INTERFACE
 st.title("🩺 NEET AI Master 2026")
-tab1, tab2, tab3, tab4 = st.tabs(["📖 By Chapter", "📄 By PDF", "📸 NCERT Lens", "📊 Full Analytics"])
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    "📖 By Chapter", "📄 By PDF", "📸 NCERT Lens",
+    "🎯 PYQ Mode", "🗓️ Study Planner", "📊 Full Analytics"
+])
 
 # --- TAB 1: By Chapter (with subject + topic picker) ---
 with tab1:
@@ -364,8 +459,169 @@ with tab3:
                     st.session_state.camera_active = False
                     st.rerun()
 
-# --- TAB 4: Full Analytics ---
+# --- TAB 4: PYQ Mode ---
 with tab4:
+    st.subheader("🎯 Previous Year Questions Mode")
+    st.caption("Practice questions styled after real NEET PYQs from 2020–2024")
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        pyq_subject = st.selectbox("Subject:", list(SUBJECTS.keys()),
+                                   format_func=lambda s: f"{SUBJECT_ICONS[s]} {s}",
+                                   key="pyq_subj")
+    with col2:
+        pyq_topic = st.selectbox("Topic:", SUBJECTS[pyq_subject], key="pyq_topic")
+    with col3:
+        pyq_year = st.selectbox("Year Filter:", [
+            "All Years (2020–2024)", "NEET 2024", "NEET 2023",
+            "NEET 2022", "NEET 2021", "NEET 2020"
+        ], key="pyq_year")
+
+    if st.button("🎯 Load PYQs", key="btn_pyq", use_container_width=True):
+        with st.spinner(f"Fetching {pyq_year} style questions for {pyq_topic}..."):
+            st.session_state.pyq_questions = generate_pyq(pyq_subject, pyq_topic, pyq_year)
+            st.session_state.quiz = st.session_state.pyq_questions
+            st.session_state.current_subject = pyq_subject
+            st.session_state.current_topic = f"PYQ — {pyq_topic} ({pyq_year})"
+            st.session_state.user_answers, st.session_state.submitted, st.session_state.chat_history = {}, False, []
+            st.rerun()
+
+    if st.session_state.pyq_questions and not st.session_state.quiz:
+        st.info("PYQs loaded! Scroll down to attempt the test.")
+
+# --- TAB 5: Smart Study Planner ---
+with tab5:
+    st.subheader("🗓️ AI Smart Study Planner")
+    st.caption("Get a personalized day-by-day NEET 2026 study plan based on your performance")
+
+    # Auto-detect weak/strong from history
+    auto_weak, auto_strong = [], []
+    if st.session_state.history:
+        stats_for_plan = get_subject_stats()
+        for subj, data in stats_for_plan.items():
+            avg = sum(data["accuracies"]) / len(data["accuracies"])
+            if avg < 50: auto_weak.append(subj)
+            elif avg >= 75: auto_strong.append(subj)
+
+    col1, col2 = st.columns(2)
+    with col1:
+        plan_duration = st.selectbox("Study Duration:", ["30 Days", "60 Days", "90 Days"], index=1)
+        plan_hours = st.slider("Daily Study Hours:", min_value=4, max_value=14, value=8, step=1)
+        plan_target = st.selectbox("Target Score:", ["600+", "620+", "640+", "660+", "680+", "700+"], index=3)
+
+    with col2:
+        all_subjects = list(SUBJECTS.keys())
+        plan_weak = st.multiselect(
+            "Your Weak Subjects:",
+            all_subjects,
+            default=auto_weak,
+            format_func=lambda s: f"{SUBJECT_ICONS[s]} {s}"
+        )
+        plan_strong = st.multiselect(
+            "Your Strong Subjects:",
+            all_subjects,
+            default=auto_strong,
+            format_func=lambda s: f"{SUBJECT_ICONS[s]} {s}"
+        )
+
+    if auto_weak:
+        st.info(f"💡 Auto-detected weak areas from your test history: **{', '.join(auto_weak)}**")
+    if auto_strong:
+        st.success(f"💪 Auto-detected strong areas: **{', '.join(auto_strong)}**")
+
+    if st.button("🗓️ Generate My Study Plan", key="btn_plan", use_container_width=True):
+        with st.spinner("AI is crafting your personalized study plan..."):
+            days = int(plan_duration.split()[0])
+            st.session_state.study_plan = generate_study_plan(
+                days, plan_weak, plan_strong, plan_target, plan_hours
+            )
+
+    if st.session_state.study_plan:
+        plan = st.session_state.study_plan
+        st.divider()
+
+        # Overview & Strategy
+        st.markdown("### 🚀 Your Personalized NEET Plan")
+        st.info(f"📋 **Overview:** {plan.get('overview', '')}")
+        st.warning(f"🧠 **Strategy:** {plan.get('strategy', '')}")
+
+        st.divider()
+
+        # Subject Hours Allocation
+        st.markdown("### ⏱️ Recommended Subject Hours Allocation")
+        hours_data = plan.get("subject_hours", {})
+        if hours_data:
+            h_cols = st.columns(4)
+            for idx, (subj, hrs) in enumerate(hours_data.items()):
+                icon = SUBJECT_ICONS.get(subj, "📘")
+                h_cols[idx % 4].metric(f"{icon} {subj}", f"{hrs} hrs")
+
+        st.divider()
+
+        # Weekly Breakdown
+        st.markdown("### 📅 Week-by-Week Breakdown")
+        weekly = plan.get("weekly_breakdown", [])
+        for week in weekly:
+            with st.expander(f"📆 {week.get('week_range', '')} — {week.get('theme', '')}"):
+                st.markdown(f"**🎯 Focus Topics:**")
+                for f in week.get("focus", []):
+                    st.markdown(f"  - {f}")
+                st.markdown(f"**📋 Daily Target:** {week.get('daily_targets', '')}")
+                st.markdown(f"**🔁 Revision:** {week.get('revision', '')}")
+
+        st.divider()
+
+        # Daily Schedule
+        st.markdown("### 🕐 Recommended Daily Schedule")
+        schedule = plan.get("daily_schedule", [])
+        if schedule:
+            for slot in schedule:
+                col_t, col_a = st.columns([1, 3])
+                col_t.markdown(f"**{slot.get('time', '')}**")
+                col_a.markdown(slot.get("activity", ""))
+
+        st.divider()
+
+        # Milestones
+        st.markdown("### 🏁 Key Milestones")
+        milestones = plan.get("milestones", [])
+        if milestones:
+            m_cols = st.columns(min(len(milestones), 3))
+            for idx, m in enumerate(milestones):
+                with m_cols[idx % 3]:
+                    st.metric(f"Day {m.get('day', '')}", "🎯 Goal")
+                    st.caption(m.get("goal", ""))
+
+        st.divider()
+
+        # Pro Tips
+        st.markdown("### 💡 Pro Tips from Your AI Mentor")
+        tips = plan.get("tips", [])
+        for tip in tips:
+            st.success(f"✅ {tip}")
+
+        # Download plan as text
+        plan_text = f"NEET 2026 Study Plan\n{'='*40}\n\n"
+        plan_text += f"Overview: {plan.get('overview','')}\n\nStrategy: {plan.get('strategy','')}\n\n"
+        for week in weekly:
+            plan_text += f"\n{week.get('week_range','')} — {week.get('theme','')}\n"
+            plan_text += f"Focus: {', '.join(week.get('focus',[]))}\n"
+            plan_text += f"Daily Target: {week.get('daily_targets','')}\n"
+        plan_text += "\nMilestones:\n"
+        for m in milestones:
+            plan_text += f"  Day {m.get('day','')}: {m.get('goal','')}\n"
+        plan_text += "\nTips:\n" + "\n".join(f"- {t}" for t in tips)
+
+        st.download_button(
+            "⬇️ Download Study Plan as TXT",
+            data=plan_text.encode("utf-8"),
+            file_name="neet_2026_study_plan.txt",
+            mime="text/plain",
+            use_container_width=True
+        )
+
+# --- TAB 6: Full Analytics ---
+with tab6:
     st.subheader("📊 Full Performance Analytics")
 
     if not st.session_state.history:
@@ -442,7 +698,10 @@ if st.session_state.quiz:
         topic_label = st.session_state.current_topic or ""
         st.info(f"📝 Test in Progress: **{SUBJECT_ICONS.get(subj_label, '📘')} {subj_label} — {topic_label}** | {len(st.session_state.quiz)} Questions")
         for i, q in enumerate(st.session_state.quiz):
-            st.markdown(f"#### Q{i+1}: {q['question']}")
+            year_badge = f" `{q.get('year','')}` " if q.get('year') else ""
+            diff = q.get('difficulty', '')
+            diff_badge = f"{'🟢' if diff=='Easy' else '🟡' if diff=='Medium' else '🔴' if diff=='Hard' else ''} {diff}" if diff else ""
+            st.markdown(f"#### Q{i+1}: {q['question']} {year_badge} {diff_badge}")
             st.session_state.user_answers[i] = st.radio(
                 f"Select for Q{i+1}:", ["Not Attempted"] + q['options'], key=f"q_{i}"
             )
