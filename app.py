@@ -40,16 +40,27 @@ def generate_datatable(content):
     try:
         time.sleep(1)
         prompt = f"""
-        Act as a NEET NCERT Expert. From the provided NCERT content, extract all important facts, 
-        concepts, values, and data points that are commonly asked in NEET exams.
-        Organize them into a structured table.
-        RETURN ONLY A JSON object with:
-        - "title": a short title for the table (e.g. "Hormones and Functions")
-        - "columns": list of column header names (3-5 columns max)
-        - "rows": list of rows, each row is a list of cell values matching the columns order
-        Make sure every row has the same number of cells as there are columns.
-        Extract at least 10 rows of data. Focus on NEET-relevant facts only.
-        CONTENT: {content[:8000]}
+        You are a NEET NCERT Expert. Your job is to read the EXACT text provided below and extract 
+        structured factual data ONLY from that text. 
+        
+        STRICT RULES:
+        - Do NOT use any outside knowledge or memory.
+        - Do NOT invent, assume, or add any information not explicitly present in the text.
+        - ONLY extract facts, terms, comparisons, values, or classifications that are directly stated in the text.
+        - The table title MUST reflect the actual topic of the provided text (e.g. if the text is about tissues, 
+          the title must be about tissues — NOT hormones, NOT unrelated topics).
+        - Choose the most logical column headers based on what the text actually contains 
+          (e.g. "Tissue Type | Location | Function | Key Features" for a tissues chapter).
+        - Extract at least 10 rows directly from the content.
+        - Each row must have exactly the same number of cells as there are columns.
+        
+        RETURN ONLY a JSON object with:
+        - "title": exact topic title derived from the text
+        - "columns": list of 3-5 column header strings
+        - "rows": list of rows (each row = list of strings matching column count)
+        
+        TEXT TO EXTRACT FROM:
+        {content[:8000]}
         """
         response = client.models.generate_content(
             model=MODEL_ID,
