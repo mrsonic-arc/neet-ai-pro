@@ -383,17 +383,37 @@ def generate_datatable(content):
             st.error(f"🩺 **Could not generate table:** {str(e)}")
             st.stop()
 
-def generate_questions(content, subject=None, topic=None, is_pdf=False):
+def generate_questions(content, subject=None, topic=None, is_pdf=False, custom_input=False):
     try:
         time.sleep(1)
-        subject_context = f"Subject: {subject}. Topic: {topic}." if subject else ""
-        prompt = f"""
-        Act as a Senior NTA NEET Paper Setter. {subject_context}
-        Using the provided NCERT CONTENT, generate 10 High-Yield MCQs.
-        Follow NEET 2021-2025 patterns. Include Standard, A-R, and Statement-based questions.
-        RETURN ONLY A JSON LIST with keys: "type", "question", "options", "answer", "explanation".
-        CONTENT: {content[:8000]}
-        """
+        if custom_input:
+            # User typed a custom chapter/topic — treat content as the topic name itself
+            prompt = f"""
+            Act as a Senior NTA NEET Paper Setter.
+            Generate 10 High-Yield MCQs strictly on this topic: "{content}".
+            Do NOT deviate to any other chapter or subject. Every question must be directly about: "{content}".
+            Follow NEET 2021-2025 patterns. Include Standard, Assertion-Reason, and Statement-based questions.
+            RETURN ONLY A JSON LIST with keys: "type", "question", "options", "answer", "explanation".
+            """
+        elif is_pdf or (subject is None):
+            # PDF or image content — extract from the provided text
+            prompt = f"""
+            Act as a Senior NTA NEET Paper Setter.
+            Using the provided NCERT CONTENT below, generate 10 High-Yield MCQs.
+            Follow NEET 2021-2025 patterns. Include Standard, A-R, and Statement-based questions.
+            RETURN ONLY A JSON LIST with keys: "type", "question", "options", "answer", "explanation".
+            CONTENT: {content[:8000]}
+            """
+        else:
+            # Dropdown subject + topic selected
+            prompt = f"""
+            Act as a Senior NTA NEET Paper Setter.
+            Subject: {subject}. Topic: {topic}.
+            Generate 10 High-Yield MCQs strictly on "{topic}" from NCERT {subject}.
+            Do NOT mix in other topics. Every question must be from: {subject} → {topic}.
+            Follow NEET 2021-2025 patterns. Include Standard, A-R, and Statement-based questions.
+            RETURN ONLY A JSON LIST with keys: "type", "question", "options", "answer", "explanation".
+            """
         response = client.models.generate_content(
             model=MODEL_ID,
             contents=prompt,
@@ -649,13 +669,29 @@ with tab1:
         selected_topic = st.selectbox("Select Topic:", SUBJECTS[selected_subject])
 
     custom_chapter = st.text_input("Or type a custom chapter/topic name (optional):")
-    content_to_use = custom_chapter if custom_chapter.strip() else f"{selected_subject} - {selected_topic} (NCERT standard)"
+
+    if custom_chapter.strip():
+        st.info(f"💡 Custom topic detected: **\"{custom_chapter.strip()}\"** — questions will be generated strictly on this topic.")
 
     if st.button("🚀 Generate Test", key="btn_chapter"):
         with st.spinner("AI is crafting questions..."):
-            st.session_state.quiz = generate_questions(content_to_use, subject=selected_subject, topic=selected_topic)
-            st.session_state.current_subject = selected_subject
-            st.session_state.current_topic = selected_topic if not custom_chapter.strip() else custom_chapter
+            if custom_chapter.strip():
+                # User typed custom — ignore dropdowns entirely
+                st.session_state.quiz = generate_questions(
+                    custom_chapter.strip(),
+                    custom_input=True
+                )
+                st.session_state.current_subject = selected_subject
+                st.session_state.current_topic = custom_chapter.strip()
+            else:
+                # Use dropdown subject + topic
+                st.session_state.quiz = generate_questions(
+                    f"{selected_subject} - {selected_topic}",
+                    subject=selected_subject,
+                    topic=selected_topic
+                )
+                st.session_state.current_subject = selected_subject
+                st.session_state.current_topic = selected_topic
             st.session_state.user_answers, st.session_state.submitted, st.session_state.chat_history = {}, False, []
             st.session_state.current_q_idx, st.session_state.review_q_idx = 0, 0
             st.rerun()
