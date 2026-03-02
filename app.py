@@ -7,7 +7,7 @@ import time
 import datetime
 
 # 1. SETUP & CONFIG
-st.set_page_config(page_title="NEET BY AI", page_icon="🩺", layout="wide")
+st.set_page_config(page_title="NEET with AI", page_icon="🩺", layout="wide")
 
 st.markdown("""
 <style>
@@ -519,6 +519,100 @@ def generate_study_plan(duration_days, weak_subjects, strong_subjects, target_sc
             st.error("🩺 **Could not generate study plan.**")
             st.stop()
 
+def generate_flashcards(content, custom_input=False):
+    try:
+        time.sleep(1)
+        source = f'the NEET topic: "{content}"' if custom_input else f"the following NCERT content:\n{content[:6000]}"
+        prompt = f"""
+        You are a NEET revision expert. Generate 15 high-yield flashcards from {source}.
+        Each flashcard must be exam-focused: front = concise question or term, back = precise NEET answer.
+        Cover definitions, values, comparisons, mechanisms, and mnemonics.
+        RETURN ONLY a JSON list of objects with keys: "front", "back", "category"
+        where "category" is one of: Definition, Value/Formula, Mechanism, Comparison, Mnemonic
+        """
+        response = client.models.generate_content(
+            model=MODEL_ID, contents=prompt,
+            config=types.GenerateContentConfig(response_mime_type="application/json")
+        )
+        return json.loads(response.text)
+    except Exception as e:
+        if "429" in str(e) or "quota" in str(e).lower():
+            st.error("⏳ Server busy. Please wait 60 seconds."); st.stop()
+        else:
+            st.error(f"🩺 Could not generate flashcards."); st.stop()
+
+def generate_formula_sheet(topic, subject):
+    try:
+        time.sleep(1)
+        prompt = f"""
+        You are a NEET expert. Generate a thorough quick-revision cheat sheet for:
+        Subject: {subject}, Topic: {topic}
+        Include ALL important formulas, reactions, values, and facts needed for NEET.
+        RETURN ONLY a JSON object with:
+        {{
+          "title": "topic name",
+          "subject": "{subject}",
+          "sections": [
+            {{
+              "heading": "section name e.g. Key Formulas / Important Reactions / Must-Know Values / Key Facts",
+              "items": [
+                {{"label": "name", "content": "formula/value/reaction", "note": "NEET tip or trick"}}
+              ]
+            }}
+          ]
+        }}
+        Generate at least 4 sections with at least 5 items each. Be thorough and NEET-specific.
+        """
+        response = client.models.generate_content(
+            model=MODEL_ID, contents=prompt,
+            config=types.GenerateContentConfig(response_mime_type="application/json")
+        )
+        return json.loads(response.text)
+    except Exception as e:
+        if "429" in str(e) or "quota" in str(e).lower():
+            st.error("⏳ Server busy. Please wait 60 seconds."); st.stop()
+        else:
+            st.error(f"🩺 Could not generate formula sheet."); st.stop()
+
+def generate_daily_challenge():
+    try:
+        today = datetime.date.today().strftime("%d %B %Y")
+        prompt = f"""
+        Today is {today}. Generate exactly 1 high-yield NEET MCQ as the "Daily Challenge".
+        Pick a random NEET subject (Physics/Chemistry/Botany/Zoology) and a tricky but fair question.
+        RETURN ONLY a single JSON object (not a list) with keys:
+        "subject", "topic", "question", "options" (list of 4), "answer", "explanation", "fun_fact"
+        where "fun_fact" is an interesting NEET-relevant fact related to the question.
+        """
+        response = client.models.generate_content(
+            model=MODEL_ID, contents=prompt,
+            config=types.GenerateContentConfig(response_mime_type="application/json")
+        )
+        return json.loads(response.text)
+    except Exception as e:
+        if "429" in str(e) or "quota" in str(e).lower():
+            st.error("⏳ Server busy. Please wait 60 seconds."); st.stop()
+        else:
+            st.error(f"🩺 Could not generate daily challenge."); st.stop()
+
+def check_and_update_streak():
+    today = datetime.date.today()
+    last  = st.session_state.last_challenge_date
+    if last is None:
+        st.session_state.streak = 1
+    elif (today - last).days == 1:
+        st.session_state.streak += 1
+    elif (today - last).days > 1:
+        st.session_state.streak = 1
+    st.session_state.last_challenge_date = today
+    # Award badges
+    badges = st.session_state.badges
+    streak = st.session_state.streak
+    if streak >= 3  and "🔥 3-Day Streak"   not in badges: badges.append("🔥 3-Day Streak")
+    if streak >= 7  and "⚡ 7-Day Warrior"  not in badges: badges.append("⚡ 7-Day Warrior")
+    if streak >= 14 and "🏆 14-Day Champion" not in badges: badges.append("🏆 14-Day Champion")
+    if streak >= 30 and "👑 30-Day Legend"   not in badges: badges.append("👑 30-Day Legend")
+
 def save_attempt(subject, topic, score, accuracy, correct, wrong, skipped, total):
     """Save a test attempt to session history."""
     attempt = {
@@ -567,6 +661,16 @@ defaults = {
     "pyq_questions": None,
     "current_q_idx": 0,
     "review_q_idx": 0,
+    "flashcards": None,
+    "flashcard_idx": 0,
+    "flashcard_flipped": False,
+    "formula_sheet": None,
+    "daily_challenge": None,
+    "daily_answered": False,
+    "daily_selected": None,
+    "streak": 0,
+    "last_challenge_date": None,
+    "badges": [],
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -646,15 +750,16 @@ st.markdown("""
     background-clip: text;
     margin: 0;
     letter-spacing: -0.03em;
-  ">NEET BY AI</h1>
+  ">NEET with AI</h1>
   <p style="color:#7a8ba0;font-size:1rem;margin:8px 0 0 0;font-family:'DM Sans',sans-serif;">
-    Your AI-powered NEET preparation engine &nbsp;·&nbsp; Smart tests, PYQs, study plans & analytics
+    Your AI-powered NEET preparation engine &nbsp;·&nbsp; Tests · PYQs · Flashcards · Daily Challenge · Formula Sheets
   </p>
 </div>
 """, unsafe_allow_html=True)
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
     "📖 By Chapter", "📄 By PDF", "📸 NCERT Lens",
-    "🎯 PYQ Mode", "🗓️ Study Planner", "📊 Full Analytics"
+    "🎯 PYQ Mode", "🗓️ Study Planner", "📊 Full Analytics",
+    "🃏 Flashcards", "⚗️ Formula Sheet", "🔥 Daily Challenge"
 ])
 
 # --- TAB 1: By Chapter (with subject + topic picker) ---
@@ -1064,6 +1169,350 @@ with tab6:
                 cols[2].metric("Correct ✅", attempt["correct"])
                 cols[3].metric("Wrong ❌", attempt["wrong"])
                 cols[4].metric("Skipped ⏭️", attempt["skipped"])
+                cols[4].metric("Skipped ⏭️", attempt["skipped"])
+
+
+# --- TAB 7: Flashcard Generator ---
+with tab7:
+    st.subheader("🃏 Smart Flashcard Generator")
+    st.caption("AI-generated revision flashcards — flip to reveal answers")
+
+    fc_col1, fc_col2 = st.columns(2)
+    with fc_col1:
+        fc_subject = st.selectbox("Subject:", list(SUBJECTS.keys()),
+                                  format_func=lambda s: f"{SUBJECT_ICONS[s]} {s}", key="fc_subj")
+    with fc_col2:
+        fc_topic = st.selectbox("Topic:", SUBJECTS[fc_subject], key="fc_topic")
+
+    fc_custom = st.text_input("Or type a custom topic:", key="fc_custom")
+
+    if st.button("🃏 Generate Flashcards", key="btn_fc", use_container_width=True):
+        with st.spinner("Generating flashcards..."):
+            if fc_custom.strip():
+                st.session_state.flashcards = generate_flashcards(fc_custom.strip(), custom_input=True)
+            else:
+                st.session_state.flashcards = generate_flashcards(
+                    f"{fc_subject} - {fc_topic} NCERT standard", custom_input=True
+                )
+            st.session_state.flashcard_idx = 0
+            st.session_state.flashcard_flipped = False
+            st.rerun()
+
+    if st.session_state.flashcards:
+        cards = st.session_state.flashcards
+        cidx  = st.session_state.flashcard_idx
+        card  = cards[cidx]
+        flipped = st.session_state.flashcard_flipped
+
+        CATEGORY_COLORS = {
+            "Definition":   ("#00d4ff", "rgba(0,212,255,0.08)"),
+            "Value/Formula":("#00ff9d", "rgba(0,255,157,0.08)"),
+            "Mechanism":    ("#7b5ea7", "rgba(123,94,167,0.12)"),
+            "Comparison":   ("#ffb347", "rgba(255,179,71,0.08)"),
+            "Mnemonic":     ("#ff4d6d", "rgba(255,77,109,0.08)"),
+        }
+        cat = card.get("category", "Definition")
+        accent, bg = CATEGORY_COLORS.get(cat, ("#00d4ff", "rgba(0,212,255,0.08)"))
+
+        # Progress dots
+        fdots = "".join([
+            f'<span style="display:inline-block;width:{"24px" if d==cidx else "8px"};height:6px;'
+            f'background:{"#00d4ff" if d==cidx else "#1e2d45"};border-radius:4px;margin:0 2px;"></span>'
+            for d in range(len(cards))
+        ])
+        st.markdown(f'<div style="margin-bottom:16px;display:flex;align-items:center;flex-wrap:wrap;">{fdots}</div>', unsafe_allow_html=True)
+
+        # Card counter + category badge
+        st.markdown(f"""
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <span style="font-family:Syne,sans-serif;font-weight:700;color:#7a8ba0;font-size:0.85rem;text-transform:uppercase;letter-spacing:0.06em;">
+            Card {cidx+1} of {len(cards)}
+          </span>
+          <span style="background:{bg};border:1px solid {accent}44;color:{accent};border-radius:8px;padding:4px 14px;font-size:0.82rem;font-weight:600;">
+            {cat}
+          </span>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Flashcard face
+        face_label = "💡 Answer" if flipped else "❓ Question"
+        face_content = card["back"] if flipped else card["front"]
+        face_color = accent if flipped else "#e8edf5"
+        st.markdown(f"""
+        <div style="
+          background:{bg};
+          border:2px solid {accent}44;
+          border-left:4px solid {accent};
+          border-radius:18px;
+          padding:40px 36px;
+          margin-bottom:20px;
+          min-height:160px;
+          display:flex;
+          flex-direction:column;
+          justify-content:center;
+          text-align:center;
+          cursor:pointer;
+          transition:all 0.3s ease;
+        ">
+          <div style="font-family:DM Sans,sans-serif;font-size:0.75rem;color:#7a8ba0;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:14px;">{face_label}</div>
+          <div style="font-family:Syne,sans-serif;font-size:1.2rem;font-weight:700;color:{face_color};line-height:1.5;">{face_content}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Flip + nav buttons
+        btn1, btn2, btn3, btn4 = st.columns([1, 2, 1, 1])
+        with btn1:
+            if cidx > 0:
+                if st.button("← Prev", key="fc_prev", use_container_width=True):
+                    st.session_state.flashcard_idx -= 1
+                    st.session_state.flashcard_flipped = False
+                    st.rerun()
+        with btn2:
+            flip_label = "👁️ Show Question" if flipped else "💡 Flip to Answer"
+            if st.button(flip_label, key="fc_flip", use_container_width=True):
+                st.session_state.flashcard_flipped = not st.session_state.flashcard_flipped
+                st.rerun()
+        with btn3:
+            if cidx < len(cards) - 1:
+                if st.button("Next →", key="fc_next", use_container_width=True):
+                    st.session_state.flashcard_idx += 1
+                    st.session_state.flashcard_flipped = False
+                    st.rerun()
+        with btn4:
+            if st.button("🔀 Shuffle", key="fc_shuffle", use_container_width=True):
+                import random
+                random.shuffle(st.session_state.flashcards)
+                st.session_state.flashcard_idx = 0
+                st.session_state.flashcard_flipped = False
+                st.rerun()
+
+        st.divider()
+        with st.expander("📋 View All Flashcards at Once"):
+            for i, c in enumerate(cards):
+                acc2, bg2 = CATEGORY_COLORS.get(c.get("category","Definition"), ("#00d4ff","rgba(0,212,255,0.08)"))
+                st.markdown(f"""
+                <div style="background:{bg2};border:1px solid {acc2}33;border-radius:12px;padding:14px 18px;margin-bottom:8px;">
+                  <div style="font-size:0.75rem;color:{acc2};text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px;">
+                    #{i+1} · {c.get('category','—')}
+                  </div>
+                  <div style="font-weight:600;color:#e8edf5;margin-bottom:6px;">{c['front']}</div>
+                  <div style="color:#a0aec0;font-size:0.9rem;">→ {c['back']}</div>
+                </div>
+                """, unsafe_allow_html=True)
+
+
+# --- TAB 8: Formula & Reaction Sheet ---
+with tab8:
+    st.subheader("⚗️ Formula & Reaction Sheet")
+    st.caption("AI-generated quick-revision cheat sheet for any NEET topic")
+
+    fs_col1, fs_col2 = st.columns(2)
+    with fs_col1:
+        fs_subject = st.selectbox("Subject:", list(SUBJECTS.keys()),
+                                  format_func=lambda s: f"{SUBJECT_ICONS[s]} {s}", key="fs_subj")
+    with fs_col2:
+        fs_topic = st.selectbox("Topic:", SUBJECTS[fs_subject], key="fs_topic")
+
+    fs_custom = st.text_input("Or type a custom topic:", key="fs_custom")
+
+    if st.button("⚗️ Generate Cheat Sheet", key="btn_fs", use_container_width=True):
+        final_topic   = fs_custom.strip() if fs_custom.strip() else fs_topic
+        final_subject = fs_subject
+        with st.spinner("Generating formula sheet..."):
+            st.session_state.formula_sheet = generate_formula_sheet(final_topic, final_subject)
+            st.rerun()
+
+    if st.session_state.formula_sheet:
+        fs = st.session_state.formula_sheet
+        icon_fs = SUBJECT_ICONS.get(fs.get("subject", ""), "⚗️")
+
+        st.markdown(f"""
+        <div style="
+          background:linear-gradient(135deg,rgba(0,255,157,0.07),rgba(0,212,255,0.07));
+          border:1px solid rgba(0,255,157,0.2);
+          border-radius:16px;padding:22px 28px;margin-bottom:24px;
+        ">
+          <div style="font-family:Syne,sans-serif;font-weight:800;font-size:1.5rem;color:#00ff9d;">
+            {icon_fs} {fs.get('title','Formula Sheet')}
+          </div>
+          <div style="color:#7a8ba0;font-size:0.88rem;margin-top:4px;">{fs.get('subject','')} · Quick Revision Cheat Sheet</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        SECTION_COLORS = ["#00d4ff","#00ff9d","#ffb347","#7b5ea7","#ff4d6d","#00d4ff"]
+        for si, section in enumerate(fs.get("sections", [])):
+            sc = SECTION_COLORS[si % len(SECTION_COLORS)]
+            st.markdown(f"""
+            <div style="display:flex;align-items:center;gap:10px;margin:20px 0 12px 0;">
+              <div style="width:4px;height:22px;background:{sc};border-radius:4px;"></div>
+              <span style="font-family:Syne,sans-serif;font-weight:700;font-size:1rem;color:{sc};">
+                {section.get('heading','')}
+              </span>
+            </div>
+            """, unsafe_allow_html=True)
+
+            for item in section.get("items", []):
+                note_html = f'<div style="color:#7a8ba0;font-size:0.8rem;margin-top:4px;">💡 {item["note"]}</div>' if item.get("note") else ""
+                st.markdown(f"""
+                <div style="
+                  background:#121a28;border:1px solid #1e2d45;border-left:3px solid {sc};
+                  border-radius:10px;padding:12px 18px;margin-bottom:8px;
+                ">
+                  <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">
+                    <span style="font-family:DM Sans,sans-serif;font-weight:600;color:#c5d0df;font-size:0.9rem;">{item.get('label','')}</span>
+                    <code style="background:rgba({('0,212,255' if sc=='#00d4ff' else '0,255,157' if sc=='#00ff9d' else '255,179,71' if sc=='#ffb347' else '123,94,167')},0.12);color:{sc};padding:3px 10px;border-radius:6px;font-size:0.9rem;">{item.get('content','')}</code>
+                  </div>
+                  {note_html}
+                </div>
+                """, unsafe_allow_html=True)
+
+        # Download as text
+        sheet_text = f"NEET Formula Sheet: {fs.get('title','')}\n{'='*50}\n\n"
+        for section in fs.get("sections", []):
+            sheet_text += f"\n{section.get('heading','')}\n{'-'*30}\n"
+            for item in section.get("items", []):
+                sheet_text += f"  {item.get('label','')}: {item.get('content','')}"
+                if item.get("note"): sheet_text += f"  [Tip: {item['note']}]"
+                sheet_text += "\n"
+        st.divider()
+        st.download_button("⬇️ Download Cheat Sheet as TXT", data=sheet_text.encode(),
+                           file_name=f"neet_formula_{fs.get('title','sheet').replace(' ','_').lower()}.txt",
+                           mime="text/plain", use_container_width=True)
+
+
+# --- TAB 9: Daily Challenge ---
+with tab9:
+    st.subheader("🔥 Daily Challenge")
+    st.caption("One fresh NEET question every day — build your streak & earn badges")
+
+    today_str = datetime.date.today().strftime("%A, %d %B %Y")
+
+    # Streak + badges display
+    streak = st.session_state.streak
+    badges = st.session_state.badges
+
+    sc1, sc2, sc3 = st.columns(3)
+    sc1.metric("🔥 Current Streak", f"{streak} day{'s' if streak != 1 else ''}")
+    sc2.metric("📅 Today", datetime.date.today().strftime("%d %b %Y"))
+    sc3.metric("🏅 Badges Earned", len(badges))
+
+    if badges:
+        st.markdown("**Your Badges:** " + "  ".join(badges))
+
+    st.divider()
+
+    # Load today's challenge
+    already_today = (
+        st.session_state.last_challenge_date == datetime.date.today()
+        and st.session_state.daily_challenge is not None
+    )
+
+    if not already_today and st.session_state.daily_challenge is None:
+        if st.button("🎯 Load Today's Challenge", key="btn_daily", use_container_width=True):
+            with st.spinner("Fetching today's challenge..."):
+                st.session_state.daily_challenge = generate_daily_challenge()
+                st.session_state.daily_answered = False
+                st.session_state.daily_selected = None
+                st.rerun()
+
+    if st.session_state.daily_challenge:
+        dc = st.session_state.daily_challenge
+        dc_icon = SUBJECT_ICONS.get(dc.get("subject",""), "🎯")
+
+        st.markdown(f"""
+        <div style="
+          background:linear-gradient(135deg,rgba(255,77,109,0.07),rgba(255,179,71,0.07));
+          border:1px solid rgba(255,77,109,0.2);
+          border-radius:16px;padding:20px 26px;margin-bottom:20px;
+          display:flex;align-items:center;justify-content:space-between;
+        ">
+          <div>
+            <div style="font-family:Syne,sans-serif;font-weight:800;font-size:1.1rem;color:#ff4d6d;">
+              🔥 Daily Challenge — {today_str}
+            </div>
+            <div style="color:#7a8ba0;font-size:0.85rem;margin-top:4px;">
+              {dc_icon} {dc.get('subject','')} · {dc.get('topic','')}
+            </div>
+          </div>
+          <div style="font-size:2rem;">{dc_icon}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Question
+        st.markdown(f"""
+        <div style="
+          background:#121a28;border:1px solid #1e2d45;
+          border-left:4px solid #ff4d6d;
+          border-radius:14px;padding:24px 28px;margin-bottom:20px;
+        ">
+          <p style="font-family:DM Sans,sans-serif;font-size:1.05rem;color:#e8edf5;line-height:1.65;margin:0;">
+            {dc.get('question','')}
+          </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        if not st.session_state.daily_answered:
+            dc_ans = st.radio("Choose your answer:", dc.get("options", []), key="dc_radio")
+            if st.button("✅ Submit Answer", key="btn_dc_submit", use_container_width=True):
+                st.session_state.daily_selected = dc_ans
+                st.session_state.daily_answered = True
+                check_and_update_streak()
+                st.rerun()
+        else:
+            correct = dc.get("answer", "")
+            chosen  = st.session_state.daily_selected
+            is_right = chosen == correct
+
+            for opt in dc.get("options", []):
+                if opt == correct and opt == chosen:
+                    bg2, bd2, fc2, tag2 = "rgba(0,255,157,0.08)","#00ff9d44","#00ff9d","✅ Your answer · Correct"
+                elif opt == correct:
+                    bg2, bd2, fc2, tag2 = "rgba(0,255,157,0.06)","#00ff9d33","#00ff9d","✅ Correct answer"
+                elif opt == chosen:
+                    bg2, bd2, fc2, tag2 = "rgba(255,77,109,0.08)","#ff4d6d44","#ff4d6d","❌ Your answer · Wrong"
+                else:
+                    bg2, bd2, fc2, tag2 = "rgba(255,255,255,0.02)","#1e2d4566","#7a8ba0",""
+                st.markdown(f"""
+                <div style="background:{bg2};border:1px solid {bd2};border-radius:10px;
+                  padding:12px 18px;margin-bottom:8px;font-family:DM Sans,sans-serif;
+                  font-size:0.95rem;color:{fc2};display:flex;justify-content:space-between;align-items:center;">
+                  <span>{opt}</span><span style="font-size:0.8rem;">{tag2}</span>
+                </div>
+                """, unsafe_allow_html=True)
+
+            result_color = "#00ff9d" if is_right else "#ff4d6d"
+            result_msg   = "🎉 Correct! +1 to your streak!" if is_right else "😤 Incorrect! Better luck tomorrow."
+            st.markdown(f"""
+            <div style="background:rgba({('0,255,157' if is_right else '255,77,109')},0.08);
+              border:1px solid rgba({('0,255,157' if is_right else '255,77,109')},0.25);
+              border-radius:12px;padding:16px 20px;margin:16px 0;
+              font-family:DM Sans,sans-serif;font-weight:600;color:{result_color};font-size:1rem;">
+              {result_msg}
+            </div>
+            """, unsafe_allow_html=True)
+
+            st.markdown(f"""
+            <div style="background:rgba(0,212,255,0.05);border:1px solid rgba(0,212,255,0.15);
+              border-radius:10px;padding:14px 18px;margin-bottom:12px;
+              font-family:DM Sans,sans-serif;font-size:0.9rem;color:#c5d0df;line-height:1.6;">
+              📖 <strong style="color:#00d4ff;">Explanation:</strong>&nbsp; {dc.get('explanation','')}
+            </div>
+            """, unsafe_allow_html=True)
+
+            if dc.get("fun_fact"):
+                st.markdown(f"""
+                <div style="background:rgba(255,179,71,0.06);border:1px solid rgba(255,179,71,0.2);
+                  border-radius:10px;padding:14px 18px;
+                  font-family:DM Sans,sans-serif;font-size:0.88rem;color:#ffb347;line-height:1.6;">
+                  🌟 <strong>Fun Fact:</strong>&nbsp; {dc.get('fun_fact','')}
+                </div>
+                """, unsafe_allow_html=True)
+
+            if st.session_state.badges:
+                newly = st.session_state.badges[-1]
+                st.success(f"🏅 New badge unlocked: **{newly}**!")
+
+            st.info(f"🔥 Current streak: **{st.session_state.streak} day(s)** — come back tomorrow to keep it going!")
 
 
 # 6. QUIZ DISPLAY & SCORING
