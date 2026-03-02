@@ -7,7 +7,7 @@ import time
 import datetime
 
 # 1. SETUP & CONFIG
-st.set_page_config(page_title="NEET AI Master 2026", page_icon="🩺", layout="wide")
+st.set_page_config(page_title="NEET BY AI", page_icon="🩺", layout="wide")
 
 st.markdown("""
 <style>
@@ -545,6 +545,8 @@ defaults = {
     "pdf_text_cache": None,
     "study_plan": None,
     "pyq_questions": None,
+    "current_q_idx": 0,
+    "review_q_idx": 0,
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -624,7 +626,7 @@ st.markdown("""
     background-clip: text;
     margin: 0;
     letter-spacing: -0.03em;
-  ">NEET AI Master 2026</h1>
+  ">NEET BY AI</h1>
   <p style="color:#7a8ba0;font-size:1rem;margin:8px 0 0 0;font-family:'DM Sans',sans-serif;">
     Your AI-powered NEET preparation engine &nbsp;·&nbsp; Smart tests, PYQs, study plans & analytics
   </p>
@@ -655,6 +657,7 @@ with tab1:
             st.session_state.current_subject = selected_subject
             st.session_state.current_topic = selected_topic if not custom_chapter.strip() else custom_chapter
             st.session_state.user_answers, st.session_state.submitted, st.session_state.chat_history = {}, False, []
+            st.session_state.current_q_idx, st.session_state.review_q_idx = 0, 0
             st.rerun()
 
 # --- TAB 2: By PDF ---
@@ -683,6 +686,7 @@ with tab2:
                     st.session_state.current_subject = None if pdf_subject == "— Untagged —" else pdf_subject
                     st.session_state.current_topic = pdf_topic or "PDF Upload"
                     st.session_state.user_answers, st.session_state.submitted, st.session_state.chat_history = {}, False, []
+                    st.session_state.current_q_idx, st.session_state.review_q_idx = 0, 0
                     st.rerun()
 
         with gen_col2:
@@ -746,6 +750,7 @@ with tab2:
                         st.session_state.current_subject = None if pdf_subject == "— Untagged —" else pdf_subject
                         st.session_state.current_topic = pdf_topic or "PDF Upload"
                         st.session_state.user_answers, st.session_state.submitted, st.session_state.chat_history = {}, False, []
+                        st.session_state.current_q_idx, st.session_state.review_q_idx = 0, 0
                         st.rerun()
         else:
             st.warning("⚠️ Could not extract structured data from this PDF. Try a more content-rich NCERT chapter.")
@@ -788,6 +793,7 @@ with tab3:
                     st.session_state.current_subject = None if lens_subject == "— Untagged —" else lens_subject
                     st.session_state.current_topic = "NCERT Lens Scan"
                     st.session_state.user_answers, st.session_state.submitted, st.session_state.chat_history = {}, False, []
+                    st.session_state.current_q_idx, st.session_state.review_q_idx = 0, 0
                     st.session_state.camera_active = False
                     st.rerun()
 
@@ -816,6 +822,7 @@ with tab4:
             st.session_state.current_subject = pyq_subject
             st.session_state.current_topic = f"PYQ — {pyq_topic} ({pyq_year})"
             st.session_state.user_answers, st.session_state.submitted, st.session_state.chat_history = {}, False, []
+            st.session_state.current_q_idx, st.session_state.review_q_idx = 0, 0
             st.rerun()
 
     if st.session_state.pyq_questions and not st.session_state.quiz:
@@ -1022,72 +1029,180 @@ with tab6:
                 cols[3].metric("Wrong ❌", attempt["wrong"])
                 cols[4].metric("Skipped ⏭️", attempt["skipped"])
 
+
 # 6. QUIZ DISPLAY & SCORING
 if st.session_state.quiz:
     st.divider()
+    quiz     = st.session_state.quiz
+    total_qs = len(quiz)
+
+    # ── QUIZ IN PROGRESS (one question at a time) ──────────────────────────
     if not st.session_state.submitted:
-        subj_label = st.session_state.current_subject or "Custom"
+        idx         = st.session_state.current_q_idx
+        q           = quiz[idx]
+        subj_label  = st.session_state.current_subject or "Custom"
         topic_label = st.session_state.current_topic or ""
+
+        # Header bar
         st.markdown(f"""
         <div style="
           background: linear-gradient(135deg, rgba(0,212,255,0.08), rgba(123,94,167,0.08));
           border: 1px solid rgba(0,212,255,0.2);
           border-radius: 14px;
-          padding: 16px 22px;
+          padding: 14px 22px;
           margin-bottom: 20px;
           display: flex;
           align-items: center;
-          gap: 12px;
+          justify-content: space-between;
         ">
-          <span style="font-size:1.6rem;">{SUBJECT_ICONS.get(subj_label,'📘')}</span>
-          <div>
-            <div style="font-family:Syne,sans-serif;font-weight:700;color:#e8edf5;font-size:1.1rem;">
-              {subj_label} — {topic_label}
-            </div>
-            <div style="color:#7a8ba0;font-size:0.85rem;margin-top:2px;">
-              📝 Test in Progress &nbsp;·&nbsp; {len(st.session_state.quiz)} Questions &nbsp;·&nbsp; +4 / −1 Marking
+          <div style="display:flex;align-items:center;gap:12px;">
+            <span style="font-size:1.5rem;">{SUBJECT_ICONS.get(subj_label,'📘')}</span>
+            <div>
+              <div style="font-family:Syne,sans-serif;font-weight:700;color:#e8edf5;font-size:1rem;">
+                {subj_label} — {topic_label}
+              </div>
+              <div style="color:#7a8ba0;font-size:0.8rem;margin-top:2px;">
+                📝 Test in Progress &nbsp;·&nbsp; +4 / −1 Marking
+              </div>
             </div>
           </div>
+          <div style="
+            font-family:Syne,sans-serif;font-weight:800;
+            font-size:1.4rem;color:#00d4ff;
+            background:rgba(0,212,255,0.1);
+            border:1px solid rgba(0,212,255,0.25);
+            border-radius:10px;padding:6px 18px;
+          ">{idx+1} / {total_qs}</div>
         </div>
         """, unsafe_allow_html=True)
-        for i, q in enumerate(st.session_state.quiz):
-            year_badge = f" `{q.get('year','')}` " if q.get('year') else ""
-            diff = q.get('difficulty', '')
-            diff_badge = f"{'🟢' if diff=='Easy' else '🟡' if diff=='Medium' else '🔴' if diff=='Hard' else ''} {diff}" if diff else ""
-            st.markdown(f"#### Q{i+1}: {q['question']} {year_badge} {diff_badge}")
-            st.session_state.user_answers[i] = st.radio(
-                f"Select for Q{i+1}:", ["Not Attempted"] + q['options'], key=f"q_{i}"
-            )
-        if st.button("🚀 SUBMIT FINAL TEST"):
-            st.session_state.submitted = True
-            st.rerun()
+
+        # Progress dots
+        dots = ""
+        for d in range(total_qs):
+            if d == idx:
+                dots += '<span style="display:inline-block;width:28px;height:6px;background:#00d4ff;border-radius:4px;margin:0 2px;"></span>'
+            elif d in st.session_state.user_answers and st.session_state.user_answers[d] != "Not Attempted":
+                dots += '<span style="display:inline-block;width:10px;height:6px;background:#7b5ea7;border-radius:4px;margin:0 2px;"></span>'
+            else:
+                dots += '<span style="display:inline-block;width:10px;height:6px;background:#1e2d45;border-radius:4px;margin:0 2px;"></span>'
+        st.markdown(f'<div style="margin-bottom:20px;display:flex;align-items:center;flex-wrap:wrap;">{dots}</div>', unsafe_allow_html=True)
+
+        # Question card
+        year_badge = f'<span style="background:rgba(0,212,255,0.1);border:1px solid rgba(0,212,255,0.25);color:#00d4ff;border-radius:6px;padding:2px 10px;font-size:0.78rem;margin-left:8px;">{q.get("year","")}</span>' if q.get("year") else ""
+        diff = q.get("difficulty", "")
+        diff_color = {"Easy": "#00ff9d", "Medium": "#ffb347", "Hard": "#ff4d6d"}.get(diff, "")
+        diff_dot = {"Easy": "🟢", "Medium": "🟡", "Hard": "🔴"}.get(diff, "")
+        diff_badge = f'<span style="background:rgba(255,255,255,0.04);border:1px solid {diff_color}44;color:{diff_color};border-radius:6px;padding:2px 10px;font-size:0.78rem;margin-left:6px;">{diff_dot} {diff}</span>' if diff else ""
+
+        st.markdown(f"""
+        <div style="
+          background:#121a28;
+          border:1px solid #1e2d45;
+          border-left:3px solid #00d4ff;
+          border-radius:14px;
+          padding:24px 28px;
+          margin-bottom:20px;
+        ">
+          <div style="display:flex;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:6px;">
+            <span style="font-family:Syne,sans-serif;font-weight:700;color:#7a8ba0;font-size:0.85rem;text-transform:uppercase;letter-spacing:0.06em;">Question {idx+1}</span>
+            {year_badge}{diff_badge}
+          </div>
+          <p style="font-family:DM Sans,sans-serif;font-size:1.05rem;color:#e8edf5;line-height:1.65;margin:0;">{q['question']}</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Answer options
+        current_ans = st.session_state.user_answers.get(idx, "Not Attempted")
+        options_list = ["Not Attempted"] + q['options']
+        safe_index = options_list.index(current_ans) if current_ans in options_list else 0
+        answer = st.radio(
+            "Choose your answer:",
+            options_list,
+            index=safe_index,
+            key=f"q_radio_{idx}"
+        )
+        st.session_state.user_answers[idx] = answer
+
+        # Navigation buttons
+        st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+        is_last = (idx == total_qs - 1)
+
+        if is_last:
+            nav_col1, nav_col2 = st.columns([1, 2])
+            with nav_col1:
+                if idx > 0:
+                    if st.button("← Previous", key="q_prev", use_container_width=True):
+                        st.session_state.current_q_idx -= 1
+                        st.rerun()
+            with nav_col2:
+                if st.button("🚀 Submit Final Test", key="q_submit", use_container_width=True):
+                    st.session_state.submitted = True
+                    st.session_state.review_q_idx = 0
+                    st.rerun()
+        else:
+            nav_col1, nav_col2 = st.columns([1, 1])
+            with nav_col1:
+                if idx > 0:
+                    if st.button("← Previous", key="q_prev", use_container_width=True):
+                        st.session_state.current_q_idx -= 1
+                        st.rerun()
+            with nav_col2:
+                if st.button("Next →", key="q_next", use_container_width=True):
+                    st.session_state.current_q_idx += 1
+                    st.rerun()
+
+    # ── RESULTS & REVIEW ──────────────────────────────────────────────────
     else:
-        # Scoring
+        # Score calculation
         correct_count = wrong_count = skipped_count = 0
-        for i, q in enumerate(st.session_state.quiz):
+        for i, q in enumerate(quiz):
             c_ans = q.get('answer') or q.get('correct_answer') or q.get('correct')
             u_ans = st.session_state.user_answers.get(i)
             if u_ans == c_ans: correct_count += 1
             elif u_ans == "Not Attempted": skipped_count += 1
             else: wrong_count += 1
 
-        score = (correct_count * 4) - (wrong_count * 1)
-        total = len(st.session_state.quiz)
-        accuracy = (correct_count / total) * 100
+        score    = (correct_count * 4) - (wrong_count * 1)
+        accuracy = (correct_count / total_qs) * 100
 
-        # Auto-save attempt
         already_saved = st.session_state.get("_last_saved_score") == (score, st.session_state.current_topic)
         if not already_saved:
             save_attempt(
                 st.session_state.current_subject,
                 st.session_state.current_topic,
-                score, accuracy, correct_count, wrong_count, skipped_count, total
+                score, accuracy, correct_count, wrong_count, skipped_count, total_qs
             )
             st.session_state["_last_saved_score"] = (score, st.session_state.current_topic)
 
         subj = st.session_state.current_subject or "Custom"
         icon = SUBJECT_ICONS.get(subj, "📘")
-        st.header(f"{icon} Results: {score} Marks — {subj}")
+
+        # Result banner
+        feedback_color = "#00ff9d" if accuracy >= 75 else "#ffb347" if accuracy >= 50 else "#ff4d6d"
+        feedback_msg   = "🎉 Excellent performance!" if accuracy >= 75 else "📈 Good effort, keep revising!" if accuracy >= 50 else "🔴 Focus on NCERT fundamentals."
+        st.markdown(f"""
+        <div style="
+          background: linear-gradient(135deg, rgba(0,212,255,0.07), rgba(123,94,167,0.07));
+          border: 1px solid rgba(0,212,255,0.18);
+          border-radius: 18px;
+          padding: 28px 32px;
+          margin-bottom: 24px;
+          position: relative;
+          overflow: hidden;
+        ">
+          <div style="position:absolute;right:28px;top:50%;transform:translateY(-50%);font-size:4rem;opacity:0.07;">{icon}</div>
+          <div style="font-family:Syne,sans-serif;font-weight:800;font-size:2.2rem;color:#00d4ff;margin-bottom:4px;">
+            {score} Marks
+          </div>
+          <div style="font-family:DM Sans,sans-serif;color:#7a8ba0;font-size:0.95rem;">
+            {subj} &nbsp;·&nbsp; {st.session_state.current_topic or ''}
+          </div>
+          <div style="margin-top:12px;font-family:DM Sans,sans-serif;color:{feedback_color};font-size:1rem;font-weight:500;">
+            {feedback_msg}
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
+
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Score", score)
         c2.metric("Accuracy", f"{accuracy:.1f}%")
@@ -1095,58 +1210,124 @@ if st.session_state.quiz:
         c4.metric("Wrong ❌", wrong_count)
         st.progress(accuracy / 100)
 
-        # Personalized Feedback
-        if accuracy >= 75:
-            st.success(f"🎉 Excellent! You're strong in {subj}. Keep it up!")
-        elif accuracy >= 50:
-            st.warning(f"📈 Good effort! Revise weak topics in {subj} for better results.")
-        else:
-            st.error(f"🔴 Needs improvement. Focus on NCERT {subj} thoroughly.")
-
+        # ── Review: one question at a time ─────────────────────────────────
         st.divider()
-        st.markdown("### 📋 Detailed Question Review")
-        for i, q in enumerate(st.session_state.quiz):
-            c_ans = q.get('answer') or q.get('correct_answer') or q.get('correct')
-            u_ans = st.session_state.user_answers.get(i)
+        st.markdown("### 📋 Question Review")
 
-            if u_ans == c_ans:
-                status_icon = "✅"
-                status_label = "Correct"
-            elif u_ans == "Not Attempted":
-                status_icon = "⏭️"
-                status_label = "Skipped"
+        ridx  = st.session_state.review_q_idx
+        rq    = quiz[ridx]
+        c_ans = rq.get('answer') or rq.get('correct_answer') or rq.get('correct')
+        u_ans = st.session_state.user_answers.get(ridx, "Not Attempted")
+
+        if u_ans == c_ans:
+            r_color = "#00ff9d"; r_icon = "✅"; r_label = "Correct"
+            rgb = "0,255,157"
+        elif u_ans == "Not Attempted":
+            r_color = "#ffb347"; r_icon = "⏭️"; r_label = "Skipped"
+            rgb = "255,179,71"
+        else:
+            r_color = "#ff4d6d"; r_icon = "❌"; r_label = "Incorrect"
+            rgb = "255,77,109"
+
+        # Review progress dots
+        rdots = ""
+        for d in range(total_qs):
+            q_c = quiz[d].get('answer') or quiz[d].get('correct_answer') or quiz[d].get('correct')
+            q_u = st.session_state.user_answers.get(d, "Not Attempted")
+            if d == ridx:
+                dc, dw = "#00d4ff", "28px"
+            elif q_u == q_c:
+                dc, dw = "#00ff9d", "10px"
+            elif q_u == "Not Attempted":
+                dc, dw = "#ffb347", "10px"
             else:
-                status_icon = "❌"
-                status_label = "Incorrect"
+                dc, dw = "#ff4d6d", "10px"
+            rdots += f'<span style="display:inline-block;width:{dw};height:6px;background:{dc};border-radius:4px;margin:0 2px;"></span>'
+        st.markdown(f'<div style="margin-bottom:16px;display:flex;align-items:center;flex-wrap:wrap;">{rdots}</div>', unsafe_allow_html=True)
 
-            with st.expander(f"{status_icon} Q{i+1}: {q['question'][:80]}{'...' if len(q['question']) > 80 else ''}  —  {status_label}"):
-                # Full question
-                st.markdown(f"**📌 Question:**")
-                st.markdown(f"> {q['question']}")
+        # Review header
+        st.markdown(f"""
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+          <span style="font-family:Syne,sans-serif;font-weight:700;color:#7a8ba0;font-size:0.85rem;text-transform:uppercase;letter-spacing:0.06em;">
+            Reviewing Question {ridx+1} of {total_qs}
+          </span>
+          <span style="background:rgba({rgb},0.12);border:1px solid rgba({rgb},0.3);color:{r_color};border-radius:8px;padding:4px 14px;font-family:DM Sans,sans-serif;font-size:0.85rem;font-weight:600;">
+            {r_icon} {r_label}
+          </span>
+        </div>
+        """, unsafe_allow_html=True)
 
-                st.markdown("**🔘 All Options:**")
-                for opt in q.get('options', []):
-                    if opt == c_ans and opt == u_ans:
-                        st.markdown(f"- ✅ **{opt}** ← Your answer (Correct)")
-                    elif opt == c_ans:
-                        st.markdown(f"- ✅ **{opt}** ← Correct answer")
-                    elif opt == u_ans:
-                        st.markdown(f"- ❌ ~~{opt}~~ ← Your answer (Wrong)")
-                    else:
-                        st.markdown(f"- {opt}")
+        # Question text
+        st.markdown(f"""
+        <div style="
+          background:#121a28;border:1px solid #1e2d45;
+          border-left:3px solid {r_color};border-radius:14px;
+          padding:22px 26px;margin-bottom:18px;
+        ">
+          <p style="font-family:DM Sans,sans-serif;font-size:1.05rem;color:#e8edf5;line-height:1.65;margin:0;">{rq['question']}</p>
+        </div>
+        """, unsafe_allow_html=True)
 
-                st.divider()
-                if u_ans == "Not Attempted":
-                    st.warning("⏭️ You skipped this question.")
-                    st.markdown(f"**✅ Correct Answer:** `{c_ans}`")
-                elif u_ans == c_ans:
-                    st.success(f"✅ You answered correctly: `{c_ans}`")
-                else:
-                    st.error(f"❌ Your Answer: `{u_ans}`")
-                    st.success(f"✅ Correct Answer: `{c_ans}`")
+        # Options
+        for opt in rq.get('options', []):
+            if opt == c_ans and opt == u_ans:
+                bg, bd, fc, tag = "rgba(0,255,157,0.08)", "#00ff9d44", "#00ff9d", "✅ Your answer · Correct"
+            elif opt == c_ans:
+                bg, bd, fc, tag = "rgba(0,255,157,0.06)", "#00ff9d33", "#00ff9d", "✅ Correct answer"
+            elif opt == u_ans:
+                bg, bd, fc, tag = "rgba(255,77,109,0.08)", "#ff4d6d44", "#ff4d6d", "❌ Your answer · Wrong"
+            else:
+                bg, bd, fc, tag = "rgba(255,255,255,0.02)", "#1e2d4566", "#7a8ba0", ""
+            st.markdown(f"""
+            <div style="background:{bg};border:1px solid {bd};border-radius:10px;padding:12px 18px;margin-bottom:8px;
+              font-family:DM Sans,sans-serif;font-size:0.95rem;color:{fc};
+              display:flex;justify-content:space-between;align-items:center;">
+              <span>{opt}</span>
+              <span style="font-size:0.8rem;opacity:0.9;">{tag}</span>
+            </div>
+            """, unsafe_allow_html=True)
 
-                st.info(f"📖 **NCERT Explanation:** {q.get('explanation', 'Refer to NCERT.')}")
+        # Explanation
+        st.markdown(f"""
+        <div style="background:rgba(0,212,255,0.05);border:1px solid rgba(0,212,255,0.15);
+          border-radius:10px;padding:14px 18px;margin-top:14px;
+          font-family:DM Sans,sans-serif;font-size:0.9rem;color:#c5d0df;line-height:1.6;">
+          📖 <strong style="color:#00d4ff;">NCERT Explanation:</strong>&nbsp; {rq.get('explanation', 'Refer to NCERT.')}
+        </div>
+        """, unsafe_allow_html=True)
 
+        # Review navigation
+        st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+        r_is_last = (ridx == total_qs - 1)
+
+        if r_is_last:
+            rn1, rn2 = st.columns([1, 2])
+            with rn1:
+                if ridx > 0:
+                    if st.button("← Previous", key="r_prev", use_container_width=True):
+                        st.session_state.review_q_idx -= 1
+                        st.rerun()
+            with rn2:
+                if st.button("🔄 Start New Test", key="r_new", use_container_width=True):
+                    st.session_state.quiz = None
+                    st.session_state.submitted = False
+                    st.session_state.current_q_idx = 0
+                    st.session_state.review_q_idx = 0
+                    st.session_state["_last_saved_score"] = None
+                    st.rerun()
+        else:
+            rn1, rn2 = st.columns([1, 1])
+            with rn1:
+                if ridx > 0:
+                    if st.button("← Previous", key="r_prev", use_container_width=True):
+                        st.session_state.review_q_idx -= 1
+                        st.rerun()
+            with rn2:
+                if st.button("Next →", key="r_next", use_container_width=True):
+                    st.session_state.review_q_idx += 1
+                    st.rerun()
+
+        # Doubt-Buster Chat
         st.divider()
         st.subheader("💬 Doubt-Buster Chat")
         for msg in st.session_state.chat_history:
@@ -1159,15 +1340,9 @@ if st.session_state.quiz:
                 try:
                     res = client.models.generate_content(
                         model=MODEL_ID,
-                        contents=f"Quiz context: {str(st.session_state.quiz)}. Question: {prompt}"
+                        contents=f"Quiz context: {str(quiz)}. Question: {prompt}"
                     )
                     st.markdown(res.text)
                     st.session_state.chat_history.append({"role": "assistant", "content": res.text})
                 except:
                     st.error("⏳ Server busy.")
-
-        if st.button("🔄 New Test"):
-            st.session_state.quiz = None
-            st.session_state.submitted = False
-            st.session_state["_last_saved_score"] = None
-            st.rerun()
