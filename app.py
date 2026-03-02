@@ -386,33 +386,46 @@ def generate_datatable(content):
 def generate_questions(content, subject=None, topic=None, is_pdf=False, custom_input=False):
     try:
         time.sleep(1)
+
+        ar_instruction = """
+        IMPORTANT — Assertion-Reason Question Format:
+        For every Assertion-Reason (A-R) type question, the "question" field MUST contain BOTH lines together like this:
+        "Assertion (A): [full assertion statement here]\\nReason (R): [full reason statement here]"
+        NEVER split Assertion and Reason across separate fields. Both must be in the single "question" string separated by \\n.
+        The options for A-R questions must always be:
+        ["Both A and R are true and R is the correct explanation of A",
+         "Both A and R are true but R is NOT the correct explanation of A",
+         "A is true but R is false",
+         "A is false but R is true"]
+        """
+
         if custom_input:
-            # User typed a custom chapter/topic — treat content as the topic name itself
             prompt = f"""
             Act as a Senior NTA NEET Paper Setter.
             Generate 10 High-Yield MCQs strictly on this topic: "{content}".
             Do NOT deviate to any other chapter or subject. Every question must be directly about: "{content}".
             Follow NEET 2021-2025 patterns. Include Standard, Assertion-Reason, and Statement-based questions.
-            RETURN ONLY A JSON LIST with keys: "type", "question", "options", "answer", "explanation".
+            {ar_instruction}
+            RETURN ONLY A JSON LIST where each item has keys: "type", "question", "options", "answer", "explanation".
             """
         elif is_pdf or (subject is None):
-            # PDF or image content — extract from the provided text
             prompt = f"""
             Act as a Senior NTA NEET Paper Setter.
             Using the provided NCERT CONTENT below, generate 10 High-Yield MCQs.
             Follow NEET 2021-2025 patterns. Include Standard, A-R, and Statement-based questions.
-            RETURN ONLY A JSON LIST with keys: "type", "question", "options", "answer", "explanation".
+            {ar_instruction}
+            RETURN ONLY A JSON LIST where each item has keys: "type", "question", "options", "answer", "explanation".
             CONTENT: {content[:8000]}
             """
         else:
-            # Dropdown subject + topic selected
             prompt = f"""
             Act as a Senior NTA NEET Paper Setter.
             Subject: {subject}. Topic: {topic}.
             Generate 10 High-Yield MCQs strictly on "{topic}" from NCERT {subject}.
             Do NOT mix in other topics. Every question must be from: {subject} → {topic}.
             Follow NEET 2021-2025 patterns. Include Standard, A-R, and Statement-based questions.
-            RETURN ONLY A JSON LIST with keys: "type", "question", "options", "answer", "explanation".
+            {ar_instruction}
+            RETURN ONLY A JSON LIST where each item has keys: "type", "question", "options", "answer", "explanation".
             """
         response = client.models.generate_content(
             model=MODEL_ID,
@@ -612,6 +625,48 @@ def check_and_update_streak():
     if streak >= 7  and "⚡ 7-Day Warrior"  not in badges: badges.append("⚡ 7-Day Warrior")
     if streak >= 14 and "🏆 14-Day Champion" not in badges: badges.append("🏆 14-Day Champion")
     if streak >= 30 and "👑 30-Day Legend"   not in badges: badges.append("👑 30-Day Legend")
+
+def format_question_html(question_text):
+    """Render question text with proper A-R formatting if detected."""
+    text = question_text.strip()
+    # Detect Assertion-Reason pattern
+    has_assertion = "Assertion" in text or "Assertion (A)" in text
+    has_reason    = "Reason" in text or "Reason (R)" in text
+
+    if has_assertion and has_reason:
+        # Normalize separators — handle \n, \\n, and inline text
+        import re
+        # Split on newline variants or before "Reason"
+        parts = re.split(r'\\n|\n|(?=Reason\s*[\(:R])', text, maxsplit=1)
+        if len(parts) == 2:
+            assertion_line = parts[0].strip()
+            reason_line    = parts[1].strip()
+        else:
+            # Try splitting at "Reason"
+            idx = text.find("Reason")
+            assertion_line = text[:idx].strip()
+            reason_line    = text[idx:].strip()
+
+        return f"""
+        <div style="margin-bottom:6px;">
+          <span style="display:inline-block;background:rgba(0,212,255,0.12);border:1px solid rgba(0,212,255,0.3);
+            color:#00d4ff;border-radius:6px;padding:2px 10px;font-size:0.78rem;font-weight:600;
+            font-family:DM Sans,sans-serif;margin-bottom:10px;">Assertion-Reason</span>
+        </div>
+        <div style="background:rgba(0,212,255,0.05);border-left:3px solid #00d4ff;
+          border-radius:0 8px 8px 0;padding:10px 14px;margin-bottom:10px;
+          font-family:DM Sans,sans-serif;font-size:1rem;color:#e8edf5;line-height:1.6;">
+          <strong style="color:#00d4ff;">A:</strong> {assertion_line.replace('Assertion (A):','').replace('Assertion:','').strip()}
+        </div>
+        <div style="background:rgba(123,94,167,0.07);border-left:3px solid #7b5ea7;
+          border-radius:0 8px 8px 0;padding:10px 14px;
+          font-family:DM Sans,sans-serif;font-size:1rem;color:#e8edf5;line-height:1.6;">
+          <strong style="color:#7b5ea7;">R:</strong> {reason_line.replace('Reason (R):','').replace('Reason:','').strip()}
+        </div>
+        """
+    else:
+        # Regular question — just return as paragraph
+        return f'<p style="font-family:DM Sans,sans-serif;font-size:1.05rem;color:#e8edf5;line-height:1.65;margin:0;">{text}</p>'
 
 def save_attempt(subject, topic, score, accuracy, correct, wrong, skipped, total):
     """Save a test attempt to session history."""
@@ -1592,7 +1647,7 @@ if st.session_state.quiz:
             <span style="font-family:Syne,sans-serif;font-weight:700;color:#7a8ba0;font-size:0.85rem;text-transform:uppercase;letter-spacing:0.06em;">Question {idx+1}</span>
             {year_badge}{diff_badge}
           </div>
-          <p style="font-family:DM Sans,sans-serif;font-size:1.05rem;color:#e8edf5;line-height:1.65;margin:0;">{q['question']}</p>
+          {format_question_html(q['question'])}
         </div>
         """, unsafe_allow_html=True)
 
@@ -1749,7 +1804,7 @@ if st.session_state.quiz:
           border-left:3px solid {r_color};border-radius:14px;
           padding:22px 26px;margin-bottom:18px;
         ">
-          <p style="font-family:DM Sans,sans-serif;font-size:1.05rem;color:#e8edf5;line-height:1.65;margin:0;">{rq['question']}</p>
+          {format_question_html(rq['question'])}
         </div>
         """, unsafe_allow_html=True)
 
