@@ -342,319 +342,188 @@ def extract_text_from_pdf(pdf_file):
     reader = PdfReader(pdf_file)
     return "".join([page.extract_text() for page in reader.pages])
 
+def safe_json(text):
+    raw = text.strip()
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        if raw.startswith("json"): raw = raw[4:]
+    return json.loads(raw.strip())
+
+def is_retryable(err_str):
+    return any(code in err_str for code in ["429","503","500","UNAVAILABLE","quota","rate","overload","unavailable"])
+
+def gemini_call(prompt, retries=4):
+    """Central Gemini API caller with auto-retry + live countdown for 429/503/500."""
+    wait_times = [15, 30, 60, 90]
+    for attempt in range(retries):
+        try:
+            time.sleep(1)
+            response = client.models.generate_content(
+                model=MODEL_ID,
+                contents=prompt,
+                config=types.GenerateContentConfig(response_mime_type="application/json")
+            )
+            return safe_json(response.text)
+        except json.JSONDecodeError as e:
+            st.error(f"⚠️ AI returned invalid response format. Please try again. ({e})")
+            st.stop()
+        except Exception as e:
+            err = str(e)
+            if is_retryable(err) and attempt < retries - 1:
+                wait = wait_times[attempt]
+                box = st.empty()
+                for secs in range(wait, 0, -1):
+                    pct = (wait - secs) / wait
+                    box.markdown(f"""
+<div style="background:rgba(255,179,71,0.08);border:1px solid rgba(255,179,71,0.3);
+border-radius:14px;padding:16px 22px;font-family:DM Sans,sans-serif;">
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;">
+    <span style="font-size:1.5rem;">⏱️</span>
+    <div>
+      <div style="color:#ffb347;font-weight:600;font-size:0.95rem;">
+        {"⏳ API Rate Limit" if "429" in err or "quota" in err.lower() else "🔄 Server Busy — High Demand"}
+      </div>
+      <div style="color:#7a8ba0;font-size:0.82rem;margin-top:2px;">
+        Auto-retrying in <strong style="color:#ffb347;">{secs}s</strong> &nbsp;·&nbsp; Attempt {attempt+1} of {retries}
+      </div>
+    </div>
+  </div>
+  <div style="background:#1e2d45;border-radius:6px;height:6px;overflow:hidden;">
+    <div style="background:linear-gradient(90deg,#ffb347,#ff4d6d);height:6px;border-radius:6px;
+    width:{int(pct*100)}%;transition:width 1s linear;"></div>
+  </div>
+</div>""", unsafe_allow_html=True)
+                    time.sleep(1)
+                box.empty()
+            elif is_retryable(err):
+                st.error("❌ Server is temporarily unavailable. Please wait a few minutes and try again.")
+                st.stop()
+            else:
+                st.error(f"🩺 Unexpected error: {err}")
+                st.stop()
+
+
+
 def generate_datatable(content):
-    try:
-        time.sleep(1)
-        prompt = f"""
-        You are a NEET NCERT Expert. Your job is to read the EXACT text provided below and extract 
-        structured factual data ONLY from that text. 
-        
-        STRICT RULES:
-        - Do NOT use any outside knowledge or memory.
-        - Do NOT invent, assume, or add any information not explicitly present in the text.
-        - ONLY extract facts, terms, comparisons, values, or classifications that are directly stated in the text.
-        - The table title MUST reflect the actual topic of the provided text (e.g. if the text is about tissues, 
-          the title must be about tissues — NOT hormones, NOT unrelated topics).
-        - Choose the most logical column headers based on what the text actually contains 
-          (e.g. "Tissue Type | Location | Function | Key Features" for a tissues chapter).
-        - Extract at least 10 rows directly from the content.
-        - Each row must have exactly the same number of cells as there are columns.
-        
-        RETURN ONLY a JSON object with:
-        - "title": exact topic title derived from the text
-        - "columns": list of 3-5 column header strings
-        - "rows": list of rows (each row = list of strings matching column count)
-        
-        TEXT TO EXTRACT FROM:
-        {content[:8000]}
-        """
-        response = client.models.generate_content(
-            model=MODEL_ID,
-            contents=prompt,
-            config=types.GenerateContentConfig(response_mime_type="application/json")
-        )
-        raw = response.text.strip()
-        if raw.startswith('```'):
-            raw = raw.split('```')[1]
-            if raw.startswith('json'): raw = raw[4:]
-        return json.loads(raw.strip())
-    except Exception as e:
-        if "429" in str(e) or "quota" in str(e).lower():
-            st.error("⏳ **Server Synchronization in Progress**")
-            st.info("Please wait 60 seconds and try again.")
-            st.stop()
-        else:
-            st.error(f"🩺 **Could not generate table:** {str(e)}")
-            st.stop()
+    prompt = (
+        "You are a NEET NCERT Expert. Read the EXACT text below and extract structured factual data ONLY from it. "
+        "RULES: Do NOT use outside knowledge. Only extract facts directly in the text. "
+        "Title MUST reflect the actual topic. Choose logical column headers. Extract at least 10 rows. "
+        "Each row must have exactly as many cells as columns. "
+        "RETURN ONLY a JSON object with: title (string), columns (list of 3-5 strings), rows (list of lists). "
+        f"TEXT: {content[:8000]}"
+    )
+    return gemini_call(prompt)
+
 
 def generate_questions(content, subject=None, topic=None, is_pdf=False, custom_input=False):
-    try:
-        time.sleep(1)
-
-        ar_instruction = (
-            "IMPORTANT - For Assertion-Reason questions: "
-            "The 'question' field MUST contain both lines like this: "
-            "'Assertion (A): [statement]. Reason (R): [statement]' "
-            "Both Assertion and Reason must be in the single question string. "
-            "Standard A-R options are: "
-            "['Both A and R are true and R is the correct explanation of A', "
-            "'Both A and R are true but R is NOT the correct explanation of A', "
-            "'A is true but R is false', "
-            "'A is false but R is true']"
+    ar_note = (
+        "For Assertion-Reason questions the 'question' field MUST contain both: "
+        "'Assertion (A): [statement]. Reason (R): [statement]'. "
+        "Standard A-R options: ['Both A and R are true and R is the correct explanation of A', "
+        "'Both A and R are true but R is NOT the correct explanation of A', "
+        "'A is true but R is false', 'A is false but R is true']."
+    )
+    tail = (
+        "RETURN ONLY a valid JSON array. Each element must have keys: "
+        "type, question, options (array of 4 strings), answer, explanation. " + ar_note
+    )
+    if custom_input:
+        prompt = (
+            f"Act as a Senior NTA NEET Paper Setter. "
+            f"Generate 10 High-Yield MCQs strictly on this topic: '{content}'. "
+            f"Every question must be directly about '{content}'. "
+            f"Follow NEET 2021-2025 patterns. Include Standard, Assertion-Reason, and Statement-based questions. {tail}"
         )
-
-        if custom_input:
-            prompt = (
-                f"Act as a Senior NTA NEET Paper Setter. "
-                f"Generate 10 High-Yield MCQs strictly on this topic: '{content}'. "
-                f"Every question must be directly about: '{content}'. "
-                f"Follow NEET 2021-2025 patterns. Include Standard, Assertion-Reason, and Statement-based questions. "
-                f"{ar_instruction} "
-                f"RETURN ONLY a valid JSON array. Each element must have these exact keys: "
-                f"type, question, options (array of 4 strings), answer, explanation."
-            )
-        elif is_pdf or (subject is None):
-            prompt = (
-                f"Act as a Senior NTA NEET Paper Setter. "
-                f"Using the NCERT content provided, generate 10 High-Yield MCQs. "
-                f"Follow NEET 2021-2025 patterns. Include Standard, A-R, and Statement-based questions. "
-                f"{ar_instruction} "
-                f"RETURN ONLY a valid JSON array. Each element must have these exact keys: "
-                f"type, question, options (array of 4 strings), answer, explanation. "
-                f"CONTENT: {content[:8000]}"
-            )
-        else:
-            prompt = (
-                f"Act as a Senior NTA NEET Paper Setter. "
-                f"Subject: {subject}. Topic: {topic}. "
-                f"Generate 10 High-Yield MCQs strictly on '{topic}' from NCERT {subject}. "
-                f"Every question must be from: {subject} - {topic}. "
-                f"Follow NEET 2021-2025 patterns. Include Standard, A-R, and Statement-based questions. "
-                f"{ar_instruction} "
-                f"RETURN ONLY a valid JSON array. Each element must have these exact keys: "
-                f"type, question, options (array of 4 strings), answer, explanation."
-            )
-
-        response = client.models.generate_content(
-            model=MODEL_ID,
-            contents=prompt,
-            config=types.GenerateContentConfig(response_mime_type="application/json")
+    elif is_pdf or subject is None:
+        prompt = (
+            "Act as a Senior NTA NEET Paper Setter. "
+            "Using the NCERT content provided, generate 10 High-Yield MCQs. "
+            f"Follow NEET 2021-2025 patterns. Include Standard, A-R, and Statement-based questions. {tail} "
+            f"CONTENT: {content[:8000]}"
         )
-
-        raw = response.text.strip()
-        # Strip markdown code fences if present
-        if raw.startswith("```"):
-            raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
-        raw = raw.strip()
-
-        questions = json.loads(raw)
-
-        # Validate — ensure it's a list with required keys
-        if not isinstance(questions, list) or len(questions) == 0:
-            st.error("⚠️ AI returned an empty or invalid response. Please try again.")
-            st.stop()
-
-        return questions
-
-    except json.JSONDecodeError as e:
-        st.error(f"⚠️ Could not parse AI response. Please try again. (JSON error: {e})")
+    else:
+        prompt = (
+            f"Act as a Senior NTA NEET Paper Setter. Subject: {subject}. Topic: {topic}. "
+            f"Generate 10 High-Yield MCQs strictly on '{topic}' from NCERT {subject}. "
+            f"Every question must be from {subject} - {topic}. "
+            f"Follow NEET 2021-2025 patterns. Include Standard, A-R, and Statement-based questions. {tail}"
+        )
+    result = gemini_call(prompt)
+    if not isinstance(result, list) or len(result) == 0:
+        st.error("⚠️ AI returned an empty response. Please try again.")
         st.stop()
-    except Exception as e:
-        err = str(e)
-        if "429" in err or "quota" in err.lower():
-            st.error("⏳ **API limit reached.** Please wait 60 seconds and try again.")
-            st.stop()
-        else:
-            st.error(f"🩺 **Error generating questions:** {err}")
-            st.stop()
+    return result
+
 
 def generate_pyq(subject, topic, year):
-    try:
-        time.sleep(1)
-        year_context = f"from NEET {year}" if year != "All Years (2020–2024)" else "from NEET exams between 2020 and 2024"
-        prompt = f"""
-        Act as a Senior NTA NEET Paper Setter with access to previous year question papers.
-        Generate 10 MCQs that are styled and patterned EXACTLY like real NEET Previous Year Questions 
-        {year_context} for the topic: {subject} - {topic}.
-        
-        Each question must:
-        - Feel like a real PYQ (precise, factual, single best answer)
-        - Include the approximate year it was asked or could have been asked
-        - Cover different difficulty levels (easy, medium, hard)
-        - Include Assertion-Reason and Statement types where appropriate
-        
-        RETURN ONLY A JSON LIST with keys:
-        "type", "question", "options", "answer", "explanation", "year", "difficulty"
-        Where "difficulty" is one of: "Easy", "Medium", "Hard"
-        And "year" is the NEET exam year (e.g. "NEET 2022" or "NEET Pattern")
-        """
-        response = client.models.generate_content(
-            model=MODEL_ID,
-            contents=prompt,
-            config=types.GenerateContentConfig(response_mime_type="application/json")
-        )
-        raw = response.text.strip()
-        if raw.startswith('```'):
-            raw = raw.split('```')[1]
-            if raw.startswith('json'): raw = raw[4:]
-        return json.loads(raw.strip())
-    except Exception as e:
-        if "429" in str(e) or "quota" in str(e).lower():
-            st.error("⏳ **Server busy.** Please wait 60 seconds.")
-            st.stop()
-        else:
-            st.error("🩺 **Could not generate PYQs.**")
-            st.stop()
+    year_ctx = f"from NEET {year}" if year != "All Years (2020-2024)" else "from NEET exams 2020-2024"
+    prompt = (
+        f"Act as a Senior NTA NEET Paper Setter. "
+        f"Generate 10 MCQs styled exactly like real NEET PYQs {year_ctx} for: {subject} - {topic}. "
+        "Each question must feel like a real PYQ, include year, cover difficulty levels. "
+        "RETURN ONLY a JSON array. Each element has keys: "
+        "type, question, options (array of 4), answer, explanation, year, difficulty "
+        "(difficulty = Easy, Medium, or Hard)."
+    )
+    result = gemini_call(prompt)
+    if not isinstance(result, list) or len(result) == 0:
+        st.error("⚠️ AI returned an empty response. Please try again.")
+        st.stop()
+    return result
+
 
 def generate_study_plan(duration_days, weak_subjects, strong_subjects, target_score, hours_per_day):
-    try:
-        time.sleep(1)
-        prompt = f"""
-        You are an expert NEET counselor and study strategist. Create a highly personalized, 
-        actionable NEET 2026 study plan.
+    prompt = (
+        "You are an expert NEET counselor. Create a personalized NEET 2026 study plan. "
+        f"Duration: {duration_days} days. Daily hours: {hours_per_day}. "
+        f"Weak subjects: {', '.join(weak_subjects) if weak_subjects else 'None'}. "
+        f"Strong subjects: {', '.join(strong_subjects) if strong_subjects else 'None'}. "
+        f"Target score: {target_score}. "
+        "RETURN ONLY a JSON object with keys: overview, strategy, weekly_breakdown "
+        "(list of objects with week_range, theme, focus list, daily_targets, revision), "
+        "subject_hours (dict Physics/Chemistry/Biology Botany/Biology Zoology -> number), "
+        "daily_schedule (list of time/activity objects), "
+        "milestones (list of day/goal objects), tips (list of 5 strings)."
+    )
+    return gemini_call(prompt)
 
-        Student Profile:
-        - Study Duration: {duration_days} days
-        - Daily Study Time: {hours_per_day} hours/day
-        - Weak Subjects: {', '.join(weak_subjects) if weak_subjects else 'None specified'}
-        - Strong Subjects: {', '.join(strong_subjects) if strong_subjects else 'None specified'}
-        - Target NEET Score: {target_score}
-
-        Generate a structured plan. RETURN ONLY A JSON object with:
-        {{
-          "overview": "2-3 sentence motivational summary of the plan",
-          "strategy": "2-3 sentence core strategy based on weak/strong areas",
-          "weekly_breakdown": [
-            {{
-              "week_range": "Week 1-2 (or similar range)",
-              "theme": "Phase name e.g. Foundation Building",
-              "focus": ["Subject - Topic", ...],
-              "daily_targets": "Brief daily target description",
-              "revision": "Revision strategy for this phase"
-            }}
-          ],
-          "subject_hours": {{
-            "Physics": number,
-            "Chemistry": number,
-            "Biology (Botany)": number,
-            "Biology (Zoology)": number
-          }},
-          "daily_schedule": [
-            {{"time": "e.g. 6:00 AM - 7:30 AM", "activity": "description"}}
-          ],
-          "milestones": [
-            {{"day": number, "goal": "measurable goal"}}
-          ],
-          "tips": ["tip1", "tip2", "tip3", "tip4", "tip5"]
-        }}
-        """
-        response = client.models.generate_content(
-            model=MODEL_ID,
-            contents=prompt,
-            config=types.GenerateContentConfig(response_mime_type="application/json")
-        )
-        raw = response.text.strip()
-        if raw.startswith('```'):
-            raw = raw.split('```')[1]
-            if raw.startswith('json'): raw = raw[4:]
-        return json.loads(raw.strip())
-    except Exception as e:
-        if "429" in str(e) or "quota" in str(e).lower():
-            st.error("⏳ **Server busy.** Please wait 60 seconds.")
-            st.stop()
-        else:
-            st.error("🩺 **Could not generate study plan.**")
-            st.stop()
 
 def generate_flashcards(content, custom_input=False):
-    try:
-        time.sleep(1)
-        source = f'the NEET topic: "{content}"' if custom_input else f"the following NCERT content:\n{content[:6000]}"
-        prompt = f"""
-        You are a NEET revision expert. Generate 15 high-yield flashcards from {source}.
-        Each flashcard must be exam-focused: front = concise question or term, back = precise NEET answer.
-        Cover definitions, values, comparisons, mechanisms, and mnemonics.
-        RETURN ONLY a JSON list of objects with keys: "front", "back", "category"
-        where "category" is one of: Definition, Value/Formula, Mechanism, Comparison, Mnemonic
-        """
-        response = client.models.generate_content(
-            model=MODEL_ID, contents=prompt,
-            config=types.GenerateContentConfig(response_mime_type="application/json")
-        )
-        raw = response.text.strip()
-        if raw.startswith('```'):
-            raw = raw.split('```')[1]
-            if raw.startswith('json'): raw = raw[4:]
-        return json.loads(raw.strip())
-    except Exception as e:
-        if "429" in str(e) or "quota" in str(e).lower():
-            st.error("⏳ Server busy. Please wait 60 seconds."); st.stop()
-        else:
-            st.error(f"🩺 Could not generate flashcards."); st.stop()
+    source = f'the NEET topic: "{content}"' if custom_input else f"this NCERT content: {content[:6000]}"
+    prompt = (
+        f"You are a NEET revision expert. Generate 15 high-yield flashcards from {source}. "
+        "front = concise question or term, back = precise NEET answer. "
+        "Cover definitions, values, comparisons, mechanisms, mnemonics. "
+        "RETURN ONLY a JSON array of objects with keys: front, back, category. "
+        "category must be one of: Definition, Value/Formula, Mechanism, Comparison, Mnemonic."
+    )
+    return gemini_call(prompt)
+
 
 def generate_formula_sheet(topic, subject):
-    try:
-        time.sleep(1)
-        prompt = f"""
-        You are a NEET expert. Generate a thorough quick-revision cheat sheet for:
-        Subject: {subject}, Topic: {topic}
-        Include ALL important formulas, reactions, values, and facts needed for NEET.
-        RETURN ONLY a JSON object with:
-        {{
-          "title": "topic name",
-          "subject": "{subject}",
-          "sections": [
-            {{
-              "heading": "section name e.g. Key Formulas / Important Reactions / Must-Know Values / Key Facts",
-              "items": [
-                {{"label": "name", "content": "formula/value/reaction", "note": "NEET tip or trick"}}
-              ]
-            }}
-          ]
-        }}
-        Generate at least 4 sections with at least 5 items each. Be thorough and NEET-specific.
-        """
-        response = client.models.generate_content(
-            model=MODEL_ID, contents=prompt,
-            config=types.GenerateContentConfig(response_mime_type="application/json")
-        )
-        raw = response.text.strip()
-        if raw.startswith('```'):
-            raw = raw.split('```')[1]
-            if raw.startswith('json'): raw = raw[4:]
-        return json.loads(raw.strip())
-    except Exception as e:
-        if "429" in str(e) or "quota" in str(e).lower():
-            st.error("⏳ Server busy. Please wait 60 seconds."); st.stop()
-        else:
-            st.error(f"🩺 Could not generate formula sheet."); st.stop()
+    prompt = (
+        f"You are a NEET expert. Generate a thorough quick-revision cheat sheet for "
+        f"Subject: {subject}, Topic: {topic}. "
+        "Include ALL important formulas, reactions, values, and facts for NEET. "
+        "RETURN ONLY a JSON object with: title (string), subject (string), "
+        "sections (list of objects each with heading (string) and items "
+        "(list of objects with label, content, note))."
+        "Generate at least 4 sections with at least 5 items each."
+    )
+    return gemini_call(prompt)
+
 
 def generate_daily_challenge():
-    try:
-        today = datetime.date.today().strftime("%d %B %Y")
-        prompt = f"""
-        Today is {today}. Generate exactly 1 high-yield NEET MCQ as the "Daily Challenge".
-        Pick a random NEET subject (Physics/Chemistry/Botany/Zoology) and a tricky but fair question.
-        RETURN ONLY a single JSON object (not a list) with keys:
-        "subject", "topic", "question", "options" (list of 4), "answer", "explanation", "fun_fact"
-        where "fun_fact" is an interesting NEET-relevant fact related to the question.
-        """
-        response = client.models.generate_content(
-            model=MODEL_ID, contents=prompt,
-            config=types.GenerateContentConfig(response_mime_type="application/json")
-        )
-        raw = response.text.strip()
-        if raw.startswith('```'):
-            raw = raw.split('```')[1]
-            if raw.startswith('json'): raw = raw[4:]
-        return json.loads(raw.strip())
-    except Exception as e:
-        if "429" in str(e) or "quota" in str(e).lower():
-            st.error("⏳ Server busy. Please wait 60 seconds."); st.stop()
-        else:
-            st.error(f"🩺 Could not generate daily challenge."); st.stop()
+    today = datetime.date.today().strftime("%d %B %Y")
+    prompt = (
+        f"Today is {today}. Generate exactly 1 high-yield NEET MCQ as the Daily Challenge. "
+        "Pick a random NEET subject (Physics/Chemistry/Botany/Zoology), moderately difficult. "
+        "RETURN ONLY a single JSON object (not a list) with keys: "
+        "subject, topic, question, options (list of 4), answer, explanation, fun_fact."
+    )
+    return gemini_call(prompt)
+
 
 def check_and_update_streak():
     today = datetime.date.today()
@@ -1025,14 +894,32 @@ with tab3:
             with st.spinner("Analyzing diagram..."):
                 img_bytes = img_file.getvalue()
                 img_prompt = "Identify this NCERT diagram and explain 3 high-yield points for NEET 2026."
-                response = client.models.generate_content(
-                    model=MODEL_ID,
-                    contents=[img_prompt, types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg")]
-                )
-                st.markdown("### 🧬 AI Analysis")
-                st.info(response.text)
+                analysis_text = None
+                for attempt in range(4):
+                    try:
+                        response = client.models.generate_content(
+                            model=MODEL_ID,
+                            contents=[img_prompt, types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg")]
+                        )
+                        analysis_text = response.text
+                        break
+                    except Exception as e:
+                        err = str(e)
+                        if is_retryable(err) and attempt < 3:
+                            wait = [15,30,60][attempt]
+                            ph = st.empty()
+                            for s in range(wait, 0, -1):
+                                ph.warning(f"⏳ Server busy, retrying in {s}s...")
+                                time.sleep(1)
+                            ph.empty()
+                        else:
+                            st.error(f"❌ Could not analyze image: {err}")
+                            break
+                if analysis_text:
+                    st.markdown("### 🧬 AI Analysis")
+                    st.info(analysis_text)
 
-                if st.button("Create Quiz from Scan"):
+                if analysis_text and st.button("Create Quiz from Scan"):
                     st.session_state.quiz = generate_questions(response.text, is_pdf=True)
                     st.session_state.current_subject = None if lens_subject == "— Untagged —" else lens_subject
                     st.session_state.current_topic = "NCERT Lens Scan"
@@ -1926,11 +1813,24 @@ if st.session_state.quiz:
             with st.chat_message("user"): st.markdown(prompt)
             with st.chat_message("assistant"):
                 try:
-                    res = client.models.generate_content(
-                        model=MODEL_ID,
-                        contents=f"Quiz context: {str(quiz)}. Question: {prompt}"
-                    )
-                    st.markdown(res.text)
-                    st.session_state.chat_history.append({"role": "assistant", "content": res.text})
-                except:
-                    st.error("⏳ Server busy.")
+                    chat_prompt = f"You are a NEET expert tutor. Quiz context: {str(quiz)[:3000]}. Student question: {prompt}. Give a clear, concise explanation."
+                    for attempt in range(4):
+                        try:
+                            res = client.models.generate_content(model=MODEL_ID, contents=chat_prompt)
+                            st.markdown(res.text)
+                            st.session_state.chat_history.append({"role": "assistant", "content": res.text})
+                            break
+                        except Exception as ce:
+                            err = str(ce)
+                            if is_retryable(err) and attempt < 3:
+                                wait = [15,30,60][attempt]
+                                ph = st.empty()
+                                for s in range(wait, 0, -1):
+                                    ph.warning(f"⏳ Server busy, retrying in {s}s...")
+                                    time.sleep(1)
+                                ph.empty()
+                            else:
+                                st.error(f"❌ Could not get answer: {err}")
+                                break
+                except Exception as e:
+                    st.error(f"❌ {str(e)}")
